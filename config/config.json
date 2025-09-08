@@ -1,0 +1,22 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": false
+  },
+  "security": {
+    "secret_key": "your_secret_key_here",
+    "require_signature": false
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "logs/app.log"
+  },
+  "database": {
+    "path": "data/tweets.db",
+    "csv_path": "data/tweets.csv"
+  },
+  "debug_logging": {
+    "payload_log_file": "logs/payload.log"
+  }
+}
