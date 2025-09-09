@@ -266,12 +266,11 @@ def save_tweet_to_db(tweet_data):
         logger.error(f"Failed to save tweet to database: {e}")
         return False
 
-def search_tweets(user_name=None, text=None, limit=10):
-    """Search for tweets by UserName and/or Text.
+def search_tweets(search_text=None, limit=10):
+    """Search for tweets by search_text which filters both UserName and Text.
     
     Args:
-        user_name (str, optional): Username to search for
-        text (str, optional): Text to search for
+        search_text (str, optional): Text to search for in both UserName and Text fields
         limit (int): Maximum number of tweets to return (default: 10)
     
     Returns:
@@ -286,13 +285,10 @@ def search_tweets(user_name=None, text=None, limit=10):
                    FROM tweets WHERE 1=1'''
         params = []
         
-        if user_name:
-            query += ' AND user_name LIKE ?'
-            params.append(f'%{user_name}%')
-            
-        if text:
-            query += ' AND text LIKE ?'
-            params.append(f'%{text}%')
+        if search_text:
+            query += ' AND (user_name LIKE ? OR text LIKE ?)'
+            params.append(f'%{search_text}%')
+            params.append(f'%{search_text}%')
             
         query += ' ORDER BY created_at_parsed DESC, created_at DESC LIMIT ?'
         params.append(limit)
@@ -465,10 +461,9 @@ def get_latest_tweets_route():
 
 @app.route('/tweets/search', methods=['GET'])
 def search_tweets_route():
-    """Search for tweets by UserName and/or Text."""
+    """Search for tweets by text which filters both UserName and Text fields."""
     # Get parameters from query string
-    user_name = request.args.get('user_name')
-    text = request.args.get('text')
+    search_text = request.args.get('text')
     
     # Get limit parameter from query string, default to 10
     try:
@@ -478,12 +473,12 @@ def search_tweets_route():
     except (TypeError, ValueError):
         limit = 10
 
-    # Validate that at least one search parameter is provided
-    if not user_name and not text:
-        return jsonify({'error': 'At least one search parameter (user_name or text) is required'}), 400
+    # Validate that search text parameter is provided
+    if not search_text:
+        return jsonify({'error': 'Search text parameter is required'}), 400
 
     # Search tweets
-    tweets = search_tweets(user_name=user_name, text=text, limit=limit)
+    tweets = search_tweets(search_text=search_text, limit=limit)
 
     if tweets is None:
         return jsonify({'error': 'Failed to search tweets'}), 500
@@ -493,8 +488,7 @@ def search_tweets_route():
         'count': len(tweets),
         'limit': limit,
         'search_params': {
-            'user_name': user_name,
-            'text': text
+            'text': search_text
         }
     })
 

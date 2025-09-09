@@ -48,7 +48,7 @@ iftttwh/
 - Logging of incoming requests
 - Health check endpoint
 - API endpoint to retrieve latest tweets
-- API endpoint to search tweets by username and/or text
+- API endpoint to search tweets by text (filters both username and text)
 - Duplicate detection to prevent saving identical tweets
 
 ## Expected Payload Format
@@ -173,7 +173,7 @@ The debug log will contain the full JSON payload as received from IFTTT, formatt
 
 - `POST /ifttt/twitter` - IFTTT Twitter webhook endpoint
 - `GET /tweets/latest` - Get latest tweets (accepts optional `limit` parameter)
-- `GET /tweets/search` - Search tweets by username and/or text
+- `GET /tweets/search` - Search tweets by text (filters both username and text)
 - `GET /health` - Health check endpoint
 - `GET /` - Server information endpoint
 
@@ -231,20 +231,17 @@ Tweets are sorted by the createdAt timestamp in descending order (newest first),
 
 ## Searching Tweets
 
-To search for tweets, make a GET request to `/tweets/search` with query parameters:
+To search for tweets, make a GET request to `/tweets/search` with a text query parameter:
 
 ```bash
-# Search by username
-curl "http://localhost:5000/tweets/search?user_name=FirstSquawk"
-
-# Search by text
+# Search for tweets containing "China" in either username or text
 curl "http://localhost:5000/tweets/search?text=China"
 
-# Search by both username and text
-curl "http://localhost:5000/tweets/search?user_name=FirstSquawk&text=China"
+# Search for tweets containing "FirstSquawk" in either username or text
+curl "http://localhost:5000/tweets/search?text=FirstSquawk"
 
 # Limit results (default is 10, max is 100)
-curl "http://localhost:5000/tweets/search?user_name=FirstSquawk&limit=5"
+curl "http://localhost:5000/tweets/search?text=China&limit=5"
 ```
 
 The response will be in JSON format:
@@ -264,13 +261,12 @@ The response will be in JSON format:
   "count": 1,
   "limit": 10,
   "search_params": {
-    "user_name": "FirstSquawk",
     "text": "China"
   }
 }
 ```
 
-Searches use partial matching (LIKE queries) for both username and text fields. Results are sorted by the createdAt timestamp in descending order (newest first).
+Searches use partial matching (LIKE queries) and will match the search text in either the username or text fields. Results are sorted by the createdAt timestamp in descending order (newest first).
 
 ## Security
 
