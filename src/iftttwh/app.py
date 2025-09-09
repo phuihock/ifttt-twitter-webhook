@@ -179,26 +179,29 @@ def init_db():
         logger.error(f"Failed to initialize database: {e}")
 
 def load_csv_data(conn, csv_path):
-    """Load data from CSV file into the database."""
+    """Load data from CSV file into the database.
+    
+    Assumes CSV has no header row and columns are in order:
+    CreatedAt, UserName, Text, LinkToTweet
+    """
     try:
         c = conn.cursor()
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
-            # Use the first line to determine the dialect and fieldnames
-            sample = csvfile.read(1024)
-            csvfile.seek(0)
-            sniffer = csv.Sniffer()
-            dialect = sniffer.sniff(sample)
-            reader = csv.DictReader(csvfile, dialect=dialect)
+            # Skip header row if it exists (but we assume no header)
+            reader = csv.reader(csvfile)
             
             count = 0
             for row in reader:
-                # Map CSV column names to database column names
-                # CSV has: CreatedAt, UserName, Text, LinkToTweet
-                # Database expects: user_name, link_to_tweet, created_at, text
-                user_name = row.get('UserName', row.get('user_name', ''))
-                link_to_tweet = row.get('LinkToTweet', row.get('link_to_tweet', ''))
-                created_at = row.get('CreatedAt', row.get('created_at', ''))
-                text = row.get('Text', row.get('text', ''))
+                # Skip empty rows
+                if not row or len(row) < 4:
+                    continue
+                    
+                # Extract fields in the expected order:
+                # CreatedAt, UserName, Text, LinkToTweet
+                created_at = row[0] if len(row) > 0 else ''
+                user_name = row[1] if len(row) > 1 else ''
+                text = row[2] if len(row) > 2 else ''
+                link_to_tweet = row[3] if len(row) > 3 else ''
                 
                 # Parse the CreatedAt field
                 created_at_parsed = parse_created_at(created_at)

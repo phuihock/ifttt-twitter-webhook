@@ -132,7 +132,7 @@ This allows you to pre-populate the database with initial data when deploying th
 
 ## CSV File Format
 
-If you want to pre-populate the database with initial data, create a CSV file with the following columns:
+If you want to pre-populate the database with initial data, create a CSV file with the following format (no header row):
 
 ```csv
 CreatedAt,UserName,Text,LinkToTweet
@@ -140,12 +140,17 @@ CreatedAt,UserName,Text,LinkToTweet
 
 Example:
 ```csv
-CreatedAt,UserName,Text,LinkToTweet
 "September 08, 2025 at 02:39PM",@FirstSquawk,S. Korean FM: Trade negotiations with U.S. face slight delay due to concerns over U.S.-Japan-style agreement,https://twitter.com/FirstSquawk/status/1964941617305100502
 "September 08, 2025 at 02:56PM",@FirstSquawk,"China's oil demand to peak by 2027, with 2025 consumption up 100,000 bpd — government researcher",https://twitter.com/FirstSquawk/status/1964946041968656859
 ```
 
-The server will automatically map these column names to the database fields. Additional columns like `TweetEmbedCode` are optional and will be set to empty strings if not present.
+The server assumes the CSV file has no header row and that columns are in the fixed order:
+1. CreatedAt
+2. UserName
+3. Text
+4. LinkToTweet
+
+Additional columns are ignored. The server will parse the CreatedAt field and store it as a datetime object in the database.
 
 ## Payload Debug Logging
 
