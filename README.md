@@ -48,7 +48,7 @@ iftttwh/
 - Logging of incoming requests
 - Health check endpoint
 - API endpoint to retrieve latest tweets
-- API endpoint to search tweets by text (filters both username and text)
+- API endpoint to search tweets by text (with special 'from:' handling)
 - Duplicate detection to prevent saving identical tweets
 
 ## Expected Payload Format
@@ -173,7 +173,7 @@ The debug log will contain the full JSON payload as received from IFTTT, formatt
 
 - `POST /ifttt/twitter` - IFTTT Twitter webhook endpoint
 - `GET /tweets/latest` - Get latest tweets (accepts optional `limit` parameter)
-- `GET /tweets/search` - Search tweets by text (filters both username and text)
+- `GET /tweets/search` - Search tweets by text (with special 'from:' handling)
 - `GET /health` - Health check endpoint
 - `GET /` - Server information endpoint
 
@@ -237,12 +237,16 @@ To search for tweets, make a GET request to `/tweets/search` with a text query p
 # Search for tweets containing "China" in either username or text
 curl "http://localhost:5000/tweets/search?text=China"
 
-# Search for tweets containing "FirstSquawk" in either username or text
-curl "http://localhost:5000/tweets/search?text=FirstSquawk"
+# Search for tweets from a specific user using 'from:' prefix
+curl "http://localhost:5000/tweets/search?text=from:FirstSquawk"
 
 # Limit results (default is 10, max is 100)
 curl "http://localhost:5000/tweets/search?text=China&limit=5"
 ```
+
+The search endpoint has special handling for the 'from:' prefix:
+- If the search text starts with 'from:', the remainder is used as a fuzzy username filter
+- Otherwise, the search text is used to match both username and text fields
 
 The response will be in JSON format:
 ```json
@@ -266,7 +270,7 @@ The response will be in JSON format:
 }
 ```
 
-Searches use partial matching (LIKE queries) and will match the search text in either the username or text fields. Results are sorted by the createdAt timestamp in descending order (newest first).
+Searches use partial matching (LIKE queries) and will match the search text in either the username or text fields (or just the username when using 'from:'). Results are sorted by the createdAt timestamp in descending order (newest first).
 
 ## Security
 

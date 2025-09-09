@@ -267,10 +267,11 @@ def save_tweet_to_db(tweet_data):
         return False
 
 def search_tweets(search_text=None, limit=10):
-    """Search for tweets by search_text which filters both UserName and Text.
+    """Search for tweets by search_text with special 'from:' handling.
     
     Args:
-        search_text (str, optional): Text to search for in both UserName and Text fields
+        search_text (str, optional): Text to search for. If it starts with 'from:', 
+                                    the remainder is used as a fuzzy UserName filter.
         limit (int): Maximum number of tweets to return (default: 10)
     
     Returns:
@@ -286,9 +287,17 @@ def search_tweets(search_text=None, limit=10):
         params = []
         
         if search_text:
-            query += ' AND (user_name LIKE ? OR text LIKE ?)'
-            params.append(f'%{search_text}%')
-            params.append(f'%{search_text}%')
+            # Check if search_text starts with 'from:'
+            if search_text.startswith('from:'):
+                # Extract the username part and use it for fuzzy matching
+                username_filter = search_text[5:]  # Remove 'from:' prefix
+                query += ' AND user_name LIKE ?'
+                params.append(f'%{username_filter}%')
+            else:
+                # Regular search in both user_name and text fields
+                query += ' AND (user_name LIKE ? OR text LIKE ?)'
+                params.append(f'%{search_text}%')
+                params.append(f'%{search_text}%')
             
         query += ' ORDER BY created_at_parsed DESC, created_at DESC LIMIT ?'
         params.append(limit)
@@ -461,7 +470,7 @@ def get_latest_tweets_route():
 
 @app.route('/tweets/search', methods=['GET'])
 def search_tweets_route():
-    """Search for tweets by text which filters both UserName and Text fields."""
+    """Search for tweets by text with special 'from:' handling."""
     # Get parameters from query string
     search_text = request.args.get('text')
     
