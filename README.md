@@ -10,7 +10,7 @@ iftttwh/
 │   ├── config.json         # Main configuration file
 │   └── .env.example        # Example environment variables
 ├── data/                   # Data files
-│   ├── tweets.csv          # Initial data CSV file
+│   ├── Tweets - Sheet1.csv # Initial data CSV file
 │   └── tweets.db           # SQLite database
 ├── logs/                   # Log files
 ├── requirements/           # Python requirements
@@ -93,7 +93,7 @@ The CreatedAt field is expected to be in a format like "September 08, 2025 at 02
      },
      "database": {
        "path": "data/tweets.db",
-       "csv_path": "data/tweets.csv"
+       "csv_path": "data/Tweets - Sheet1.csv"
      },
      "debug_logging": {
        "payload_log_file": "logs/payload.log"

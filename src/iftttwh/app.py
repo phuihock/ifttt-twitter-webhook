@@ -35,7 +35,7 @@ def load_config():
             },
             "database": {
                 "path": "data/tweets.db",
-                "csv_path": "data/tweets.csv"
+                "csv_path": "data/Tweets - Sheet1.csv"
             },
             "debug_logging": {
                 "payload_log_file": "logs/payload.log"
@@ -76,7 +76,7 @@ def parse_created_at(created_at_str):
     """Parse the CreatedAt field from IFTTT into a datetime object."""
     if not created_at_str or created_at_str == '':
         return None
-    
+
     try:
         # Handle the format: "September 08, 2025 at 02:39PM"
         # We need to replace " at " with " " to make it parseable
@@ -92,10 +92,10 @@ def init_db():
     try:
         # Check if database exists
         db_exists = os.path.exists(DB_PATH)
-        
+
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        
+
         if not db_exists:
             # Database doesn't exist, create it
             logger.info("Database does not exist, creating new database")
@@ -107,7 +107,7 @@ def init_db():
                           created_at_parsed TIMESTAMP,
                           text TEXT,
                           received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
+
             # Check if CSV file exists and load data
             if os.path.exists(CSV_PATH):
                 logger.info(f"Loading initial data from {CSV_PATH}")
@@ -117,11 +117,11 @@ def init_db():
         else:
             # Database exists, check schema
             logger.info("Database exists, checking schema")
-            
+
             # Check if the tweets table exists
             c.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name='tweets' ''')
             table_exists = c.fetchone()
-            
+
             if not table_exists:
                 # Create the table with the new schema (without tweet_embed_code)
                 c.execute('''CREATE TABLE tweets
@@ -136,11 +136,11 @@ def init_db():
                 # Check if the created_at_parsed column exists
                 c.execute('''PRAGMA table_info(tweets)''')
                 columns = [column[1] for column in c.fetchall()]
-                
+
                 if 'created_at_parsed' not in columns:
                     # Add the created_at_parsed column
                     c.execute('''ALTER TABLE tweets ADD COLUMN created_at_parsed TIMESTAMP''')
-                
+
                 # Check if tweet_embed_code column exists and remove it if it does
                 if 'tweet_embed_code' in columns:
                     logger.info("Removing tweet_embed_code column from database")
@@ -149,7 +149,7 @@ def init_db():
                     # 2. Copy data from the old table to the new table
                     # 3. Drop the old table
                     # 4. Rename the new table to the original name
-                    
+
                     # Create new table without tweet_embed_code
                     c.execute('''CREATE TABLE tweets_new
                                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,19 +159,19 @@ def init_db():
                                   created_at_parsed TIMESTAMP,
                                   text TEXT,
                                   received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-                    
+
                     # Copy data from old table to new table
-                    c.execute('''INSERT INTO tweets_new 
+                    c.execute('''INSERT INTO tweets_new
                                  (id, user_name, link_to_tweet, created_at, created_at_parsed, text, received_at)
                                  SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text, received_at
                                  FROM tweets''')
-                    
+
                     # Drop old table
                     c.execute('''DROP TABLE tweets''')
-                    
+
                     # Rename new table to original name
                     c.execute('''ALTER TABLE tweets_new RENAME TO tweets''')
-        
+
         conn.commit()
         conn.close()
         logger.info("Database initialized successfully")
@@ -180,7 +180,7 @@ def init_db():
 
 def load_csv_data(conn, csv_path):
     """Load data from CSV file into the database.
-    
+
     Assumes CSV has no header row and columns are in order:
     CreatedAt, UserName, Text, LinkToTweet
     """
@@ -189,24 +189,24 @@ def load_csv_data(conn, csv_path):
         with open(csv_path, 'r', encoding='utf-8') as csvfile:
             # Skip header row if it exists (but we assume no header)
             reader = csv.reader(csvfile)
-            
+
             count = 0
             for row in reader:
                 # Skip empty rows
                 if not row or len(row) < 4:
                     continue
-                    
+
                 # Extract fields in the expected order:
                 # CreatedAt, UserName, Text, LinkToTweet
                 created_at = row[0] if len(row) > 0 else ''
                 user_name = row[1] if len(row) > 1 else ''
                 text = row[2] if len(row) > 2 else ''
                 link_to_tweet = row[3] if len(row) > 3 else ''
-                
+
                 # Parse the CreatedAt field
                 created_at_parsed = parse_created_at(created_at)
-                
-                c.execute('''INSERT INTO tweets 
+
+                c.execute('''INSERT INTO tweets
                              (user_name, link_to_tweet, created_at, created_at_parsed, text)
                              VALUES (?, ?, ?, ?, ?)''',
                           (user_name,
@@ -215,7 +215,7 @@ def load_csv_data(conn, csv_path):
                            created_at_parsed,
                            text))
                 count += 1
-        
+
         conn.commit()
         logger.info(f"Loaded {count} records from {csv_path}")
     except Exception as e:
@@ -226,12 +226,12 @@ def save_tweet_to_db(tweet_data):
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        
+
         # Parse the CreatedAt field
         created_at_str = tweet_data.get('CreatedAt', '')
         created_at_parsed = parse_created_at(created_at_str)
-        
-        c.execute('''INSERT INTO tweets 
+
+        c.execute('''INSERT INTO tweets
                      (user_name, link_to_tweet, created_at, created_at_parsed, text)
                      VALUES (?, ?, ?, ?, ?)''',
                   (tweet_data.get('UserName', ''),
@@ -255,12 +255,12 @@ def get_latest_tweets(limit=10):
         # Order by created_at_parsed descending to get latest tweets first
         # Use created_at as fallback if created_at_parsed is NULL
         c.execute('''SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text, received_at
-                     FROM tweets 
-                     ORDER BY created_at_parsed DESC, created_at DESC 
+                     FROM tweets
+                     ORDER BY created_at_parsed DESC, created_at DESC
                      LIMIT ?''', (limit,))
         rows = c.fetchall()
         conn.close()
-        
+
         # Convert rows to list of dictionaries
         tweets = []
         for row in rows:
@@ -273,7 +273,7 @@ def get_latest_tweets(limit=10):
                 'text': row[5],
                 'received_at': row[6]
             })
-        
+
         return tweets
     except Exception as e:
         logger.error(f"Failed to fetch tweets from database: {e}")
@@ -281,7 +281,7 @@ def get_latest_tweets(limit=10):
 
 def verify_signature(payload_body, secret_token, signature_header):
     """Verify that the payload was sent from IFTTT by validating SHA256.
-    
+
     Args:
         payload_body: original request body to verify (bytes)
         secret_token: webhook secret token (str)
@@ -305,7 +305,7 @@ def handle_ifttt_twitter_webhook():
     # Get request data
     signature_header = request.headers.get('X-Signature')
     payload = request.get_data()
-    
+
     # Log the raw payload for debugging
     try:
         payload_json = request.get_json()
@@ -315,14 +315,14 @@ def handle_ifttt_twitter_webhook():
         payload_str = payload.decode('utf-8', errors='replace')
         payload_logger.debug(f"Received payload (raw): {payload_str}")
         logger.debug(f"Payload logged to debug file (raw): {e}")
-    
+
     # Verify signature if required
     if REQUIRE_SIGNATURE:
         if not verify_signature(payload, SECRET_KEY, signature_header):
             logger.warning("Signature verification failed")
             payload_logger.debug("Signature verification failed")
             return jsonify({'error': 'Invalid signature'}), 401
-    
+
     # Parse JSON payload
     try:
         data = request.get_json()
@@ -334,19 +334,19 @@ def handle_ifttt_twitter_webhook():
         logger.error(f"Error parsing JSON: {str(e)}")
         payload_logger.debug(f"Error parsing JSON: {str(e)}")
         return jsonify({'error': 'Error parsing JSON'}), 400
-    
+
     # Extract Twitter post information
     user_name = data.get('UserName', 'unknown')
     link_to_tweet = data.get('LinkToTweet', '')
     created_at = data.get('CreatedAt', '')
     text = data.get('Text', '')
-    
+
     # Log the event
     logger.info(f"Received Twitter post from {user_name}")
     logger.info(f"Tweet: {text}")
     logger.info(f"Created at: {created_at}")
     logger.info(f"Link: {link_to_tweet}")
-    
+
     # Save to database
     if save_tweet_to_db(data):
         logger.info("Tweet data saved to database")
@@ -355,12 +355,12 @@ def handle_ifttt_twitter_webhook():
         logger.error("Failed to save tweet data to database")
         payload_logger.debug("Failed to save tweet data to database")
         return jsonify({'error': 'Failed to save tweet data'}), 500
-    
+
     # Process the Twitter post
     # Here you could add custom logic such as:
     # - Sending notifications
     # - Triggering other actions
-    
+
     return jsonify({
         'message': f'Successfully processed Twitter post from {user_name}',
         'user_name': user_name,
@@ -378,13 +378,13 @@ def get_latest_tweets_route():
         limit = max(1, min(limit, 100))
     except (TypeError, ValueError):
         limit = 10
-    
+
     # Fetch tweets from database
     tweets = get_latest_tweets(limit)
-    
+
     if tweets is None:
         return jsonify({'error': 'Failed to fetch tweets'}), 500
-    
+
     return jsonify({
         'tweets': tweets,
         'count': len(tweets),
@@ -414,7 +414,7 @@ def main():
     """Main function to run the application."""
     # Initialize database
     init_db()
-    
+
     port = config['server']['port']
     host = config['server']['host']
     debug = config['server']['debug']
