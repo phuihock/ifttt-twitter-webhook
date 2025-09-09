@@ -266,6 +266,59 @@ def save_tweet_to_db(tweet_data):
         logger.error(f"Failed to save tweet to database: {e}")
         return False
 
+def search_tweets(user_name=None, text=None, limit=10):
+    """Search for tweets by UserName and/or Text.
+    
+    Args:
+        user_name (str, optional): Username to search for
+        text (str, optional): Text to search for
+        limit (int): Maximum number of tweets to return (default: 10)
+    
+    Returns:
+        list: List of tweet dictionaries
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # Build query based on provided parameters
+        query = '''SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text, received_at
+                   FROM tweets WHERE 1=1'''
+        params = []
+        
+        if user_name:
+            query += ' AND user_name LIKE ?'
+            params.append(f'%{user_name}%')
+            
+        if text:
+            query += ' AND text LIKE ?'
+            params.append(f'%{text}%')
+            
+        query += ' ORDER BY created_at_parsed DESC, created_at DESC LIMIT ?'
+        params.append(limit)
+        
+        c.execute(query, params)
+        rows = c.fetchall()
+        conn.close()
+
+        # Convert rows to list of dictionaries
+        tweets = []
+        for row in rows:
+            tweets.append({
+                'id': row[0],
+                'user_name': row[1],
+                'link_to_tweet': row[2],
+                'created_at': row[3],
+                'created_at_parsed': row[4],
+                'text': row[5],
+                'received_at': row[6]
+            })
+
+        return tweets
+    except Exception as e:
+        logger.error(f"Failed to search tweets: {e}")
+        return []
+
 def get_latest_tweets(limit=10):
     """Get the latest n tweets from the database, sorted by createdAt."""
     try:
@@ -410,6 +463,41 @@ def get_latest_tweets_route():
         'limit': limit
     })
 
+@app.route('/tweets/search', methods=['GET'])
+def search_tweets_route():
+    """Search for tweets by UserName and/or Text."""
+    # Get parameters from query string
+    user_name = request.args.get('user_name')
+    text = request.args.get('text')
+    
+    # Get limit parameter from query string, default to 10
+    try:
+        limit = int(request.args.get('limit', 10))
+        # Ensure limit is between 1 and 100
+        limit = max(1, min(limit, 100))
+    except (TypeError, ValueError):
+        limit = 10
+
+    # Validate that at least one search parameter is provided
+    if not user_name and not text:
+        return jsonify({'error': 'At least one search parameter (user_name or text) is required'}), 400
+
+    # Search tweets
+    tweets = search_tweets(user_name=user_name, text=text, limit=limit)
+
+    if tweets is None:
+        return jsonify({'error': 'Failed to search tweets'}), 500
+
+    return jsonify({
+        'tweets': tweets,
+        'count': len(tweets),
+        'limit': limit,
+        'search_params': {
+            'user_name': user_name,
+            'text': text
+        }
+    })
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
@@ -423,6 +511,7 @@ def home():
         'endpoints': {
             'ifttt_twitter': '/ifttt/twitter (POST)',
             'latest_tweets': '/tweets/latest (GET)',
+            'search_tweets': '/tweets/search (GET)',
             'health': '/health (GET)',
             'home': '/ (GET)'
         },

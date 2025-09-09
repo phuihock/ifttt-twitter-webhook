@@ -48,6 +48,7 @@ iftttwh/
 - Logging of incoming requests
 - Health check endpoint
 - API endpoint to retrieve latest tweets
+- API endpoint to search tweets by username and/or text
 - Duplicate detection to prevent saving identical tweets
 
 ## Expected Payload Format
@@ -172,6 +173,7 @@ The debug log will contain the full JSON payload as received from IFTTT, formatt
 
 - `POST /ifttt/twitter` - IFTTT Twitter webhook endpoint
 - `GET /tweets/latest` - Get latest tweets (accepts optional `limit` parameter)
+- `GET /tweets/search` - Search tweets by username and/or text
 - `GET /health` - Health check endpoint
 - `GET /` - Server information endpoint
 
@@ -226,6 +228,49 @@ The response will be in JSON format:
 ```
 
 Tweets are sorted by the createdAt timestamp in descending order (newest first), which provides a more logical ordering than sorting by insertion ID.
+
+## Searching Tweets
+
+To search for tweets, make a GET request to `/tweets/search` with query parameters:
+
+```bash
+# Search by username
+curl "http://localhost:5000/tweets/search?user_name=FirstSquawk"
+
+# Search by text
+curl "http://localhost:5000/tweets/search?text=China"
+
+# Search by both username and text
+curl "http://localhost:5000/tweets/search?user_name=FirstSquawk&text=China"
+
+# Limit results (default is 10, max is 100)
+curl "http://localhost:5000/tweets/search?user_name=FirstSquawk&limit=5"
+```
+
+The response will be in JSON format:
+```json
+{
+  "tweets": [
+    {
+      "id": 2,
+      "user_name": "@FirstSquawk",
+      "link_to_tweet": "https://twitter.com/FirstSquawk/status/1964946041968656859",
+      "created_at": "September 08, 2025 at 02:56PM",
+      "created_at_parsed": "2025-09-08T14:56:00",
+      "text": "China's oil demand to peak by 2027, with 2025 consumption up 100,000 bpd — government researcher",
+      "received_at": "2025-09-08 15:39:24"
+    }
+  ],
+  "count": 1,
+  "limit": 10,
+  "search_params": {
+    "user_name": "FirstSquawk",
+    "text": "China"
+  }
+}
+```
+
+Searches use partial matching (LIKE queries) for both username and text fields. Results are sorted by the createdAt timestamp in descending order (newest first).
 
 ## Security
 
