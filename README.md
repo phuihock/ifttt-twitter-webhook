@@ -10,7 +10,7 @@ iftttwh/
 │   ├── config.json         # Main configuration file
 │   └── .env.example        # Example environment variables
 ├── data/                   # Data files
-│   ├── Tweets - Sheet1.csv # Initial data CSV file
+│   ├── Tweets - Sheet1.csv          # Initial data CSV file
 │   └── tweets.db           # SQLite database
 ├── logs/                   # Log files
 ├── requirements/           # Python requirements
@@ -48,6 +48,7 @@ iftttwh/
 - Logging of incoming requests
 - Health check endpoint
 - API endpoint to retrieve latest tweets
+- Duplicate detection to prevent saving identical tweets
 
 ## Expected Payload Format
 
@@ -124,7 +125,7 @@ When the server starts, it will check if the SQLite database (`data/tweets.db` b
 1. If the database exists, it will be used as-is
 2. If the database doesn't exist, the server will:
    - Create a new database file
-   - Check for a CSV file (`data/tweets.csv` by default) containing initial data
+   - Check for a CSV file (`data/Tweets - Sheet1.csv` by default) containing initial data
    - If the CSV file exists, load the data into the database
    - If no CSV file exists, create an empty database
 
@@ -151,6 +152,15 @@ The server assumes the CSV file has no header row and that columns are in the fi
 4. LinkToTweet
 
 Additional columns are ignored. The server will parse the CreatedAt field and store it as a datetime object in the database.
+
+## Duplicate Detection
+
+The server includes duplicate detection to prevent saving identical tweets. A tweet is considered a duplicate if it has the same:
+- UserName
+- LinkToTweet
+- Text
+
+When a duplicate is detected, the server will log this event but will not save the tweet to the database. This prevents the database from accumulating redundant entries.
 
 ## Payload Debug Logging
 

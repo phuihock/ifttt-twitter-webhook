@@ -222,11 +222,30 @@ def load_csv_data(conn, csv_path):
         logger.error(f"Failed to load CSV data: {e}")
 
 def save_tweet_to_db(tweet_data):
-    """Save tweet data to SQLite database."""
+    """Save tweet data to SQLite database, checking for duplicates first."""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
 
+        # Extract data from tweet_data
+        user_name = tweet_data.get('UserName', '')
+        link_to_tweet = tweet_data.get('LinkToTweet', '')
+        text = tweet_data.get('Text', '')
+
+        # Check for duplicates based on UserName, LinkToTweet, and Text
+        c.execute('''SELECT COUNT(*) FROM tweets 
+                     WHERE user_name = ? AND link_to_tweet = ? AND text = ?''',
+                  (user_name, link_to_tweet, text))
+        
+        duplicate_count = c.fetchone()[0]
+        
+        if duplicate_count > 0:
+            # Duplicate found, don't save
+            conn.close()
+            logger.info(f"Duplicate tweet found for user {user_name}, not saving to database")
+            return True  # Return True to indicate successful processing (even though we didn't save)
+
+        # No duplicate found, proceed with saving
         # Parse the CreatedAt field
         created_at_str = tweet_data.get('CreatedAt', '')
         created_at_parsed = parse_created_at(created_at_str)
@@ -234,11 +253,11 @@ def save_tweet_to_db(tweet_data):
         c.execute('''INSERT INTO tweets
                      (user_name, link_to_tweet, created_at, created_at_parsed, text)
                      VALUES (?, ?, ?, ?, ?)''',
-                  (tweet_data.get('UserName', ''),
-                   tweet_data.get('LinkToTweet', ''),
+                  (user_name,
+                   link_to_tweet,
                    created_at_str,  # Keep original string
                    created_at_parsed,  # Parsed datetime
-                   tweet_data.get('Text', '')))
+                   text))
         conn.commit()
         conn.close()
         logger.info("Tweet saved to database successfully")
@@ -349,12 +368,12 @@ def handle_ifttt_twitter_webhook():
 
     # Save to database
     if save_tweet_to_db(data):
-        logger.info("Tweet data saved to database")
-        payload_logger.debug("Tweet data saved to database successfully")
+        logger.info("Tweet data processed successfully")
+        payload_logger.debug("Tweet data processed successfully")
     else:
-        logger.error("Failed to save tweet data to database")
-        payload_logger.debug("Failed to save tweet data to database")
-        return jsonify({'error': 'Failed to save tweet data'}), 500
+        logger.error("Failed to process tweet data")
+        payload_logger.debug("Failed to process tweet data")
+        return jsonify({'error': 'Failed to process tweet data'}), 500
 
     # Process the Twitter post
     # Here you could add custom logic such as:
