@@ -17,6 +17,8 @@ help:
 	@echo "  lint        - Run code linter"
 	@echo "  format      - Format code with black"
 	@echo "  docker      - Build Docker image"
+	@echo "  compose-up  - Start application with Docker Compose"
+	@echo "  compose-down - Stop application with Docker Compose"
 	@echo "  help        - Show this help message"
 
 # Install dependencies
@@ -55,7 +57,17 @@ format:
 # Build Docker image
 .PHONY: docker
 docker:
-	docker build -t ghcr.io/phuihock/ifttt-twitter-webhook:main .
+	docker build -t ifttt-twitter-webhook .
+
+# Start application with Docker Compose
+.PHONY: compose-up
+compose-up:
+	docker-compose up -d
+
+# Stop application with Docker Compose
+.PHONY: compose-down
+compose-down:
+	docker-compose down
 
 # Install development dependencies
 .PHONY: dev-install

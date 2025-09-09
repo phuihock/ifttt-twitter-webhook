@@ -27,12 +27,12 @@ iftttwh/
 │   └── test_webhook.py     # Webhook tests
 ├── .env.example            # Example environment variables
 ├── .gitignore              # Git ignore file
+├── docker-compose.yml      # Docker Compose configuration
 ├── Dockerfile              # Docker configuration
 ├── Makefile                # Makefile for common tasks
 ├── webhook_server.service  # Systemd service file
 ├── pyproject.toml          # Python project configuration
-├── setup.py                # Setup script
-└── README.md               # This file
+└── setup.py                # Setup script
 ```
 
 ## Features
@@ -298,6 +298,21 @@ docker build -t ifttt-twitter-webhook .
 
 # Run the container
 docker run -d -p 5000:5000 --name ifttt-twitter-webhook ifttt-twitter-webhook
+```
+
+### Docker Compose
+
+You can also use Docker Compose to run the application:
+
+```bash
+# Start the application
+docker-compose up -d
+
+# Stop the application
+docker-compose down
+
+# View logs
+docker-compose logs -f
 ```
 
 ### Systemd Service
