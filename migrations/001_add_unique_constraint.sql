@@ -1,6 +1,13 @@
 -- Migration script to add unique constraint and remove duplicates
 -- This script should be run on existing databases to upgrade them
 
+-- Add migration tracking table if it doesn't exist
+CREATE TABLE IF NOT EXISTS applied_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    migration_name TEXT UNIQUE NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 BEGIN TRANSACTION;
 
 -- Step 1: Detect and remove existing duplicates, keeping only the one with the smallest id

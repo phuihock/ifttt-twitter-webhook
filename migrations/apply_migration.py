@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Database migration script to add unique constraint and remove duplicates.
+Generic database migration framework.
 """
 
 import os
@@ -9,6 +9,183 @@ import sys
 import json
 import shutil
 import glob
+from typing import List, Tuple
+
+class MigrationManager:
+    def __init__(self, db_path: str, migrations_dir: str = "migrations"):
+        self.db_path = db_path
+        self.migrations_dir = migrations_dir
+        self.migration_table = "applied_migrations"
+        
+    def init_migration_tracking(self):
+        """Initialize the migration tracking table if it doesn't exist."""
+        if not os.path.exists(self.db_path):
+            return
+            
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Create migration tracking table
+            cursor.execute(f'''
+                CREATE TABLE IF NOT EXISTS {self.migration_table} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    migration_name TEXT UNIQUE NOT NULL,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error initializing migration tracking: {e}")
+            
+    def get_applied_migrations(self) -> List[str]:
+        """Get list of already applied migrations."""
+        if not os.path.exists(self.db_path):
+            return []
+            
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check if migration tracking table exists
+            cursor.execute('''SELECT name FROM sqlite_master 
+                             WHERE type='table' AND name=?''', (self.migration_table,))
+            table_exists = cursor.fetchone()
+            
+            if not table_exists:
+                conn.close()
+                return []
+                
+            cursor.execute(f'SELECT migration_name FROM {self.migration_table} ORDER BY id')
+            migrations = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            return migrations
+        except Exception as e:
+            print(f"Error getting applied migrations: {e}")
+            return []
+            
+    def get_all_migrations(self) -> List[str]:
+        """Get list of all available migrations."""
+        try:
+            migration_files = sorted(glob.glob(os.path.join(self.migrations_dir, '*.sql')))
+            # Extract just the filename without path
+            return [os.path.basename(f) for f in migration_files]
+        except Exception as e:
+            print(f"Error getting migration files: {e}")
+            return []
+            
+    def get_pending_migrations(self) -> List[str]:
+        """Get list of migrations that haven't been applied yet."""
+        all_migrations = self.get_all_migrations()
+        applied_migrations = self.get_applied_migrations()
+        return [m for m in all_migrations if m not in applied_migrations]
+        
+    def create_backup(self, migration_name: str) -> bool:
+        """Create a backup of the database file based on migration name."""
+        if not os.path.exists(self.db_path):
+            print(f"Database file {self.db_path} does not exist. Nothing to backup.")
+            return True
+            
+        try:
+            # Extract migration filename without extension
+            migration_name_no_ext = os.path.splitext(migration_name)[0]
+            # Create backup filename using migration name
+            backup_path = f"{self.db_path.rsplit('.', 1)[0]}_{migration_name_no_ext}.db"
+                
+            print(f"Creating backup of database to {backup_path}...")
+            shutil.copy2(self.db_path, backup_path)
+            print("Backup created successfully!")
+            return True
+        except Exception as e:
+            print(f"Error creating backup: {e}")
+            return False
+            
+    def mark_migration_applied(self, migration_name: str):
+        """Mark a migration as applied in the tracking table."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute(f'''
+                INSERT OR IGNORE INTO {self.migration_table} (migration_name) 
+                VALUES (?)
+            ''', (migration_name,))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error marking migration as applied: {e}")
+            
+    def apply_migration(self, migration_name: str) -> bool:
+        """Apply a specific migration file."""
+        migration_path = os.path.join(self.migrations_dir, migration_name)
+        
+        if not os.path.exists(migration_path):
+            print(f"Migration file {migration_path} does not exist.")
+            return False
+            
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            print(f"Applying migration {migration_name}...")
+            
+            # Read and execute the migration SQL
+            with open(migration_path, 'r') as f:
+                migration_sql = f.read()
+                
+            cursor.executescript(migration_sql)
+            
+            # Mark migration as applied
+            self.mark_migration_applied(migration_name)
+            
+            print("Migration applied successfully!")
+            
+            conn.commit()
+            conn.close()
+            return True
+            
+        except Exception as e:
+            print(f"Error applying migration {migration_name}: {e}")
+            return False
+            
+    def apply_all_pending(self) -> bool:
+        """Apply all pending migrations."""
+        # Initialize migration tracking
+        self.init_migration_tracking()
+        
+        # Check if database exists
+        if not os.path.exists(self.db_path):
+            print(f"Database file {self.db_path} does not exist.")
+            # This is fine - it will be created when first migration runs
+            
+        pending_migrations = self.get_pending_migrations()
+        
+        if not pending_migrations:
+            print("No migrations pending. Database is up to date.")
+            return True
+            
+        print(f"Found {len(pending_migrations)} pending migrations:")
+        for migration in pending_migrations:
+            print(f"  - {migration}")
+            
+        # Apply each pending migration
+        for migration_name in pending_migrations:
+            # Create backup before applying each migration
+            if not self.create_backup(migration_name):
+                print(f"Failed to create backup for {migration_name}. Aborting migration.")
+                return False
+            
+            if not self.apply_migration(migration_name):
+                print(f"Failed to apply migration {migration_name}!")
+                return False
+            else:
+                print(f"Successfully applied migration {migration_name}")
+                
+        print("All migrations completed successfully!")
+        return True
 
 def load_config():
     """Load configuration from config.json file."""
@@ -23,149 +200,21 @@ def load_config():
             }
         }
 
-def create_backup(db_path, migration_file):
-    """Create a backup of the database file based on migration filename."""
-    if not os.path.exists(db_path):
-        print(f"Database file {db_path} does not exist. Nothing to backup.")
-        return True
-        
-    try:
-        # Extract migration filename without path and extension
-        migration_name = os.path.splitext(os.path.basename(migration_file))[0]
-        # Create backup filename using migration name
-        backup_path = f"{db_path.rsplit('.', 1)[0]}_{migration_name}.db"
-            
-        print(f"Creating backup of database to {backup_path}...")
-        shutil.copy2(db_path, backup_path)
-        print("Backup created successfully!")
-        return True
-    except Exception as e:
-        print(f"Error creating backup: {e}")
-        return False
-
-def get_pending_migrations(db_path):
-    """Get list of migration files that have not been applied yet."""
-    # For now, we'll check if the unique constraint exists to determine if migration is needed
-    # In a more sophisticated system, we would track applied migrations in a separate table
-    
-    if not os.path.exists(db_path):
-        # If database doesn't exist, all migrations are pending
-        migration_files = sorted(glob.glob('migrations/*.sql'))
-        return migration_files
-        
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Check if the tweets table exists
-        cursor.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name='tweets' ''')
-        table_exists = cursor.fetchone()
-        
-        if not table_exists:
-            # If table doesn't exist, all migrations are pending
-            migration_files = sorted(glob.glob('migrations/*.sql'))
-            conn.close()
-            return migration_files
-            
-        # Check if unique constraint already exists
-        cursor.execute('''PRAGMA table_info(tweets)''')
-        columns = [column[1] for column in cursor.fetchall()]
-        
-        # Check if we have the new schema (unique constraint)
-        # We'll check if we have the unique constraint by trying to insert a duplicate
-        try:
-            # Try to create a test duplicate (this will fail if constraint exists)
-            cursor.execute("SELECT user_name, link_to_tweet, text FROM tweets LIMIT 1")
-            row = cursor.fetchone()
-            if row:
-                user_name, link_to_tweet, text = row
-                # Try inserting the same row again
-                cursor.execute('''INSERT OR IGNORE INTO tweets 
-                                 (user_name, link_to_tweet, created_at, text) 
-                                 VALUES (?, ?, ?, ?)''',
-                              (user_name, link_to_tweet, "test", text))
-                if cursor.rowcount == 0:
-                    # Unique constraint exists, no migrations needed
-                    conn.close()
-                    return []
-                else:
-                    # Rollback the test insert
-                    conn.rollback()
-        except sqlite3.Error:
-            pass  # Continue with migration
-            
-        conn.close()
-        
-        # If we get here, the migration is needed
-        migration_files = sorted(glob.glob('migrations/*.sql'))
-        return migration_files
-        
-    except Exception as e:
-        print(f"Error checking migration status: {e}")
-        # Default to all migrations if we can't determine status
-        return sorted(glob.glob('migrations/*.sql'))
-
-def apply_migration(db_path, migration_file):
-    """Apply a specific migration file."""
-    if not os.path.exists(db_path):
-        print(f"Database file {db_path} does not exist. Nothing to migrate.")
-        return True
-        
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        print(f"Applying migration {migration_file}...")
-        
-        # Apply the migration
-        with open(migration_file, 'r') as f:
-            migration_sql = f.read()
-            
-        cursor.executescript(migration_sql)
-        
-        print("Migration applied successfully!")
-        
-        conn.commit()
-        conn.close()
-        return True
-        
-    except Exception as e:
-        print(f"Error applying migration {migration_file}: {e}")
-        return False
-
 def main():
     """Main function to run the migration."""
     config = load_config()
     db_path = config['database']['path']
     
-    print(f"Checking database migration status for: {db_path}")
+    print(f"Applying database migrations to: {db_path}")
     
-    # Get pending migrations
-    pending_migrations = get_pending_migrations(db_path)
+    # Create migration manager
+    manager = MigrationManager(db_path)
     
-    if not pending_migrations:
-        print("No migrations pending. Database is up to date.")
+    # Apply all pending migrations
+    if manager.apply_all_pending():
         return 0
-    
-    print(f"Found {len(pending_migrations)} pending migrations:")
-    for migration in pending_migrations:
-        print(f"  - {migration}")
-    
-    # Apply each pending migration
-    for migration_file in pending_migrations:
-        # Create backup before applying each migration
-        if not create_backup(db_path, migration_file):
-            print(f"Failed to create backup for {migration_file}. Aborting migration.")
-            return 1
-        
-        if not apply_migration(db_path, migration_file):
-            print(f"Failed to apply migration {migration_file}!")
-            return 1
-        else:
-            print(f"Successfully applied migration {migration_file}")
-    
-    print("All migrations completed successfully!")
-    return 0
+    else:
+        return 1
 
 if __name__ == '__main__':
     sys.exit(main())

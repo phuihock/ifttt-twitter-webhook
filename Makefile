@@ -17,7 +17,7 @@ help:
 	@echo "  lint        - Run code linter"
 	@echo "  format      - Format code with black"
 	@echo "  docker      - Build Docker image"
-	@echo "  migrate     - Apply database migrations (creates backup first)"
+	@echo "  migrate     - Apply database migrations (generic framework)"
 	@echo "  help        - Show this help message"
 
 # Install dependencies
