@@ -99,6 +99,7 @@ def init_db():
         if not db_exists:
             # Database doesn't exist, create it
             logger.info("Database does not exist, creating new database")
+            # Create table with unique constraint on the combination of user_name, link_to_tweet, and text
             c.execute('''CREATE TABLE tweets
                          (id INTEGER PRIMARY KEY AUTOINCREMENT,
                           user_name TEXT,
@@ -106,7 +107,8 @@ def init_db():
                           created_at TEXT,
                           created_at_parsed TIMESTAMP,
                           text TEXT,
-                          received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+                          received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          UNIQUE(user_name, link_to_tweet, text))''')
 
             # Check if CSV file exists and load data
             if os.path.exists(CSV_PATH):
@@ -115,15 +117,15 @@ def init_db():
             else:
                 logger.info("No CSV file found, creating empty database")
         else:
-            # Database exists, check schema
+            # Database exists, check if it has the correct schema
             logger.info("Database exists, checking schema")
-
-            # Check if the tweets table exists
+            
+            # Check if tweets table exists
             c.execute('''SELECT name FROM sqlite_master WHERE type='table' AND name='tweets' ''')
             table_exists = c.fetchone()
-
+            
             if not table_exists:
-                # Create the table with the new schema (without tweet_embed_code)
+                # Create table with unique constraint
                 c.execute('''CREATE TABLE tweets
                              (id INTEGER PRIMARY KEY AUTOINCREMENT,
                               user_name TEXT,
@@ -131,46 +133,24 @@ def init_db():
                               created_at TEXT,
                               created_at_parsed TIMESTAMP,
                               text TEXT,
-                              received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+                              received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                              UNIQUE(user_name, link_to_tweet, text))''')
             else:
-                # Check if the created_at_parsed column exists
+                # Check if UNIQUE constraint exists by trying to add it
+                try:
+                    # Try to add the unique constraint
+                    c.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_tweets_unique 
+                                 ON tweets(user_name, link_to_tweet, text)''')
+                except sqlite3.Error as e:
+                    logger.debug(f"Unique index already exists or error creating it: {e}")
+                    
+                # Check if created_at_parsed column exists
                 c.execute('''PRAGMA table_info(tweets)''')
                 columns = [column[1] for column in c.fetchall()]
-
+                
                 if 'created_at_parsed' not in columns:
                     # Add the created_at_parsed column
                     c.execute('''ALTER TABLE tweets ADD COLUMN created_at_parsed TIMESTAMP''')
-
-                # Check if tweet_embed_code column exists and remove it if it does
-                if 'tweet_embed_code' in columns:
-                    logger.info("Removing tweet_embed_code column from database")
-                    # SQLite doesn't support DROP COLUMN directly, so we need to:
-                    # 1. Create a new table without the tweet_embed_code column
-                    # 2. Copy data from the old table to the new table
-                    # 3. Drop the old table
-                    # 4. Rename the new table to the original name
-
-                    # Create new table without tweet_embed_code
-                    c.execute('''CREATE TABLE tweets_new
-                                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                  user_name TEXT,
-                                  link_to_tweet TEXT,
-                                  created_at TEXT,
-                                  created_at_parsed TIMESTAMP,
-                                  text TEXT,
-                                  received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-
-                    # Copy data from old table to new table
-                    c.execute('''INSERT INTO tweets_new
-                                 (id, user_name, link_to_tweet, created_at, created_at_parsed, text, received_at)
-                                 SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text, received_at
-                                 FROM tweets''')
-
-                    # Drop old table
-                    c.execute('''DROP TABLE tweets''')
-
-                    # Rename new table to original name
-                    c.execute('''ALTER TABLE tweets_new RENAME TO tweets''')
 
         conn.commit()
         conn.close()
@@ -206,15 +186,20 @@ def load_csv_data(conn, csv_path):
                 # Parse the CreatedAt field
                 created_at_parsed = parse_created_at(created_at)
 
-                c.execute('''INSERT INTO tweets
-                             (user_name, link_to_tweet, created_at, created_at_parsed, text)
-                             VALUES (?, ?, ?, ?, ?)''',
-                          (user_name,
-                           link_to_tweet,
-                           created_at,
-                           created_at_parsed,
-                           text))
-                count += 1
+                try:
+                    c.execute('''INSERT INTO tweets
+                                 (user_name, link_to_tweet, created_at, created_at_parsed, text)
+                                 VALUES (?, ?, ?, ?, ?)''',
+                              (user_name,
+                               link_to_tweet,
+                               created_at,
+                               created_at_parsed,
+                               text))
+                    count += 1
+                except sqlite3.IntegrityError:
+                    # Duplicate found in CSV, skip it
+                    logger.debug(f"Skipping duplicate tweet from CSV: {user_name}, {text[:50]}...")
+                    continue
 
         conn.commit()
         logger.info(f"Loaded {count} records from {csv_path}")
@@ -222,7 +207,7 @@ def load_csv_data(conn, csv_path):
         logger.error(f"Failed to load CSV data: {e}")
 
 def save_tweet_to_db(tweet_data):
-    """Save tweet data to SQLite database, checking for duplicates first."""
+    """Save tweet data to SQLite database, using database-level duplicate prevention."""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -232,40 +217,29 @@ def save_tweet_to_db(tweet_data):
         link_to_tweet = tweet_data.get('LinkToTweet', '')
         text = tweet_data.get('Text', '')
 
-        # Log the values we're checking for duplicates
-        logger.debug(f"Checking for duplicate: user_name='{user_name}', link_to_tweet='{link_to_tweet}', text='{text}'")
-
-        # Check for duplicates based on UserName, LinkToTweet, and Text
-        c.execute('''SELECT COUNT(*) FROM tweets 
-                     WHERE user_name = ? AND link_to_tweet = ? AND text = ?''',
-                  (user_name, link_to_tweet, text))
-        
-        duplicate_count = c.fetchone()[0]
-        logger.debug(f"Found {duplicate_count} duplicates")
-        
-        if duplicate_count > 0:
-            # Duplicate found, don't save
-            conn.close()
-            logger.info(f"Duplicate tweet found for user {user_name}, not saving to database")
-            return True  # Return True to indicate successful processing (even though we didn't save)
-
-        # No duplicate found, proceed with saving
         # Parse the CreatedAt field
         created_at_str = tweet_data.get('CreatedAt', '')
         created_at_parsed = parse_created_at(created_at_str)
 
-        c.execute('''INSERT INTO tweets
-                     (user_name, link_to_tweet, created_at, created_at_parsed, text)
-                     VALUES (?, ?, ?, ?, ?)''',
-                  (user_name,
-                   link_to_tweet,
-                   created_at_str,  # Keep original string
-                   created_at_parsed,  # Parsed datetime
-                   text))
-        conn.commit()
-        conn.close()
-        logger.info("Tweet saved to database successfully")
-        return True
+        # Try to insert the tweet - database will enforce uniqueness
+        try:
+            c.execute('''INSERT INTO tweets
+                         (user_name, link_to_tweet, created_at, created_at_parsed, text)
+                         VALUES (?, ?, ?, ?, ?)''',
+                      (user_name,
+                       link_to_tweet,
+                       created_at_str,  # Keep original string
+                       created_at_parsed,  # Parsed datetime
+                       text))
+            conn.commit()
+            conn.close()
+            logger.info("Tweet saved to database successfully")
+            return True
+        except sqlite3.IntegrityError as e:
+            # Duplicate detected by database constraint
+            conn.close()
+            logger.info(f"Duplicate tweet prevented by database constraint for user {user_name}")
+            return True  # Return True to indicate successful processing (even though we didn't save)
     except Exception as e:
         logger.error(f"Failed to save tweet to database: {e}")
         return False

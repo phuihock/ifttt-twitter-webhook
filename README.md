@@ -13,6 +13,10 @@ iftttwh/
 │   ├── Tweets - Sheet1.csv          # Initial data CSV file
 │   └── tweets.db           # SQLite database
 ├── logs/                   # Log files
+├── migrations/             # Database migration scripts
+│   ├── 001_add_unique_constraint.sql # Migration script
+│   ├── apply_migration.py  # Python migration script
+│   └── README.md           # Migration documentation
 ├── requirements/           # Python requirements
 │   ├── base.txt            # Base requirements
 │   └── dev.txt             # Development requirements
@@ -32,7 +36,9 @@ iftttwh/
 ├── Makefile                # Makefile for common tasks
 ├── webhook_server.service  # Systemd service file
 ├── pyproject.toml          # Python project configuration
-└── setup.py                # Setup script
+├── setup.py                # Setup script
+├── migrate.sh             # Database migration script
+└── README.md               # This file
 ```
 
 ## Features
@@ -49,7 +55,8 @@ iftttwh/
 - Health check endpoint
 - API endpoint to retrieve latest tweets
 - API endpoint to search tweets by text (with special 'from:' handling)
-- Duplicate detection to prevent saving identical tweets
+- Database-level duplicate prevention using UNIQUE constraints
+- Database migration scripts for schema upgrades
 
 ## Expected Payload Format
 
@@ -132,6 +139,22 @@ When the server starts, it will check if the SQLite database (`data/tweets.db` b
 
 This allows you to pre-populate the database with initial data when deploying the server.
 
+## Database Migrations
+
+If you're upgrading from an older version of the server, you may need to apply database migrations to update the schema and remove duplicates:
+
+```bash
+./migrate.sh
+```
+
+This will:
+1. Check if the database exists
+2. Apply any needed migrations
+3. Remove duplicate tweets
+4. Add UNIQUE constraints to prevent future duplicates
+
+See [migrations/README.md](migrations/README.md) for more details.
+
 ## CSV File Format
 
 If you want to pre-populate the database with initial data, create a CSV file with the following format (no header row):
@@ -154,14 +177,14 @@ The server assumes the CSV file has no header row and that columns are in the fi
 
 Additional columns are ignored. The server will parse the CreatedAt field and store it as a datetime object in the database.
 
-## Duplicate Detection
+## Duplicate Prevention
 
-The server includes duplicate detection to prevent saving identical tweets. A tweet is considered a duplicate if it has the same:
+The server includes database-level duplicate prevention using UNIQUE constraints. A tweet is considered a duplicate if it has the same:
 - UserName
 - LinkToTweet
 - Text
 
-When a duplicate is detected, the server will log this event but will not save the tweet to the database. This prevents the database from accumulating redundant entries.
+When a duplicate is detected, the database will automatically reject it, preventing duplicate tweets from being saved. This works even with concurrent requests, eliminating race conditions that could previously cause duplicates.
 
 ## Payload Debug Logging
 
@@ -324,11 +347,12 @@ CREATE TABLE tweets (
   created_at TEXT,
   created_at_parsed TIMESTAMP,
   text TEXT,
-  received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_name, link_to_tweet, text)
 );
 ```
 
-The `created_at_parsed` field contains the parsed datetime version of the `created_at` field, which makes it easier to perform date-based queries.
+The `created_at_parsed` field contains the parsed datetime version of the `created_at` field, which makes it easier to perform date-based queries. The UNIQUE constraint on `user_name`, `link_to_tweet`, and `text` prevents duplicate tweets from being saved, even with concurrent requests.
 
 ## Common Tasks
 
@@ -342,6 +366,7 @@ make clean       # Clean up temporary files
 make lint        # Run code linter
 make format      # Format code with black
 make docker      # Build Docker image
+make migrate    # Apply database migrations
 ```
 
 ## Deployment
