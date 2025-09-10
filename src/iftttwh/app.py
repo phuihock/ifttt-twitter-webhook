@@ -232,12 +232,16 @@ def save_tweet_to_db(tweet_data):
         link_to_tweet = tweet_data.get('LinkToTweet', '')
         text = tweet_data.get('Text', '')
 
+        # Log the values we're checking for duplicates
+        logger.debug(f"Checking for duplicate: user_name='{user_name}', link_to_tweet='{link_to_tweet}', text='{text}'")
+
         # Check for duplicates based on UserName, LinkToTweet, and Text
         c.execute('''SELECT COUNT(*) FROM tweets 
                      WHERE user_name = ? AND link_to_tweet = ? AND text = ?''',
                   (user_name, link_to_tweet, text))
         
         duplicate_count = c.fetchone()[0]
+        logger.debug(f"Found {duplicate_count} duplicates")
         
         if duplicate_count > 0:
             # Duplicate found, don't save
