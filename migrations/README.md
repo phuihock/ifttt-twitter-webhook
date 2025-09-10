@@ -24,23 +24,36 @@ To apply the migration, run:
 python migrations/apply_migration.py
 ```
 
-This script will:
-1. Check if the database exists
-2. Check if the migration is needed
-3. Apply the migration if needed
-4. Report the number of duplicates removed
+Or use the shell script:
+
+```bash
+./migrate.sh
+```
+
+Both scripts will:
+1. Check which migrations have not yet been applied
+2. Create a backup of the database before applying each migration
+3. Apply pending migrations
+4. Report the results
+
+## Backup Process
+
+Before applying each migration, a backup of the original database file is automatically created:
+
+- Original file: `data/tweets.db`
+- Backup file: `data/tweets_<migration_filename>.db` (e.g., `data/tweets_001_add_unique_constraint.db`)
+
+The backup preserves the exact state of the database before each migration, allowing for easy rollback if needed.
 
 ## How It Works
 
-The migration uses SQLite's transaction support to ensure data integrity:
+The migration system works as follows:
 
-1. It begins a transaction
-2. Removes duplicates by keeping only the row with the smallest ID for each unique combination
-3. Creates a new table with the UNIQUE constraint
-4. Copies data from the old table to the new table
-5. Drops the old table
-6. Renames the new table to the original name
-7. Commits the transaction
+1. Checks which migrations have not yet been applied
+2. For each pending migration:
+   - Creates a backup named after the migration file
+   - Applies the migration SQL script
+3. Uses SQLite's transaction support to ensure data integrity
 
 ## Benefits
 
@@ -48,3 +61,17 @@ The migration uses SQLite's transaction support to ensure data integrity:
 2. **Data Cleanup**: Automatically removes existing duplicates
 3. **Performance**: Adds indexes for faster queries
 4. **Reliability**: Uses database transactions to ensure data integrity
+5. **Safety**: Creates automatic backups before applying changes
+6. **Recovery**: Easy rollback through backup files if needed
+7. **Dynamic Naming**: Backup files are named after the migration being applied
+
+## Manual Backup Restoration
+
+If you need to restore from a backup:
+
+1. Stop the application
+2. Copy the backup file to the original location:
+   ```bash
+   cp data/tweets_001_add_unique_constraint.db data/tweets.db
+   ```
+3. Restart the application
