@@ -56,7 +56,7 @@ format:
 # Build Docker image
 .PHONY: docker
 docker:
-	docker build -t ifttt-twitter-webhook .
+	docker build -t ghcr.io/phuihock/ifttt-twitter-webhook:main .
 
 # Start application with Docker Compose
 .PHONY: compose-up
