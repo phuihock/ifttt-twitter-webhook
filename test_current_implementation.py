@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from iftttwh.app import save_tweet_to_db
 
 def test_current_implementation():
-    \"\"\"Test that the current implementation works correctly.\"\"\"
+    """Test that the current implementation works correctly."""
     # Test tweet data
     tweet1 = {
         'UserName': 'testuser',

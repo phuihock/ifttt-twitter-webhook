@@ -448,9 +448,9 @@ def get_latest_tweets_route():
 
 @app.route('/tweets/search', methods=['GET'])
 def search_tweets_route():
-    """Search for tweets by text with special 'from:' handling."""
+    """Search for tweets by query with special 'from:' handling."""
     # Get parameters from query string
-    search_text = request.args.get('text')
+    search_text = request.args.get('query')
     
     # Get limit parameter from query string, default to 10
     try:
@@ -462,7 +462,7 @@ def search_tweets_route():
 
     # Validate that search text parameter is provided
     if not search_text:
-        return jsonify({'error': 'Search text parameter is required'}), 400
+        return jsonify({'error': 'Search query parameter is required'}), 400
 
     # Search tweets
     tweets = search_tweets(search_text=search_text, limit=limit)
@@ -475,7 +475,7 @@ def search_tweets_route():
         'count': len(tweets),
         'limit': limit,
         'search_params': {
-            'text': search_text
+            'query': search_text
         }
     })
 

@@ -254,22 +254,22 @@ Tweets are sorted by the createdAt timestamp in descending order (newest first),
 
 ## Searching Tweets
 
-To search for tweets, make a GET request to `/tweets/search` with a text query parameter:
+To search for tweets, make a GET request to `/tweets/search` with a query parameter:
 
 ```bash
 # Search for tweets containing "China" in either username or text
-curl "http://localhost:5000/tweets/search?text=China"
+curl "http://localhost:5000/tweets/search?query=China"
 
 # Search for tweets from a specific user using 'from:' prefix
-curl "http://localhost:5000/tweets/search?text=from:FirstSquawk"
+curl "http://localhost:5000/tweets/search?query=from:FirstSquawk"
 
 # Limit results (default is 10, max is 100)
-curl "http://localhost:5000/tweets/search?text=China&limit=5"
+curl "http://localhost:5000/tweets/search?query=China&limit=5"
 ```
 
 The search endpoint has special handling for the 'from:' prefix:
-- If the search text starts with 'from:', the remainder is used as a fuzzy username filter
-- Otherwise, the search text is used to match both username and text fields
+- If the search query starts with 'from:', the remainder is used as a fuzzy username filter
+- Otherwise, the search query is used to match both username and text fields
 
 The response will be in JSON format:
 ```json
@@ -288,12 +288,12 @@ The response will be in JSON format:
   "count": 1,
   "limit": 10,
   "search_params": {
-    "text": "China"
+    "query": "China"
   }
 }
 ```
 
-Searches use partial matching (LIKE queries) and will match the search text in either the username or text fields (or just the username when using 'from:'). Results are sorted by the createdAt timestamp in descending order (newest first).
+Searches use partial matching (LIKE queries) and will match the search query in either the username or text fields (or just the username when using 'from:'). Results are sorted by the createdAt timestamp in descending order (newest first).
 
 ## Security
 
