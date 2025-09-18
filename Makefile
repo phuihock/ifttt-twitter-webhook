@@ -41,6 +41,7 @@ clean:
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name "__pycache__" -delete
 	rm -f *.log
+	rm -f logs/*.log
 	rm -f data/*.db
 
 # Run code linter

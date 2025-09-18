@@ -47,7 +47,6 @@ iftttwh/
 - Parses Twitter post data in the expected JSON format
 - Saves tweet data to a local SQLite3 database
 - Parses and stores the CreatedAt field as a datetime object
-- Loads initial data from CSV file if database doesn't exist
 - Retrieves tweets sorted by createdAt timestamp (newest first)
 - Logs incoming payloads to a separate debug file for troubleshooting
 - Optional signature verification for security
@@ -55,6 +54,7 @@ iftttwh/
 - Health check endpoint
 - API endpoint to retrieve latest tweets
 - API endpoint to search tweets by text (with special 'from:' handling)
+- API endpoint for semantic search using DistilBERT embeddings
 - Database-level duplicate prevention using UNIQUE constraints
 - Database migration scripts for schema upgrades
 
@@ -197,6 +197,7 @@ The debug log will contain the full JSON payload as received from IFTTT, formatt
 - `POST /ifttt/twitter` - IFTTT Twitter webhook endpoint
 - `GET /tweets/latest` - Get latest tweets (accepts optional `limit` parameter)
 - `GET /tweets/search` - Search tweets by text (with special 'from:' handling)
+- `GET /tweets/semantic-search` - Search tweets semantically using text embeddings
 - `GET /health` - Health check endpoint
 - `GET /` - Server information endpoint
 
@@ -295,6 +296,47 @@ The response will be in JSON format:
 
 Searches use partial matching (LIKE queries) and will match the search query in either the username or text fields (or just the username when using 'from:'). Results are sorted by the createdAt timestamp in descending order (newest first).
 
+## Semantic Search
+
+The server now includes semantic search capabilities using the `transformers` library with DistilBERT. This allows you to find tweets that are semantically similar to your query, rather than just matching keywords.
+
+To perform a semantic search, make a GET request to `/tweets/semantic-search` with a query parameter:
+
+```bash
+# Search for tweets semantically related to "oil prices"
+curl "http://localhost:5000/tweets/semantic-search?query=oil prices"
+
+# Limit results (default is 10, max is 100)
+curl "http://localhost:5000/tweets/semantic-search?query=oil prices&limit=5"
+```
+
+The semantic search endpoint returns tweets sorted by semantic similarity to your query, with the most similar tweets first. Each tweet in the response includes a `similarity` score between 0 and 1, where 1 indicates a perfect match.
+
+Example response:
+```json
+{
+  "tweets": [
+    {
+      "id": 2,
+      "user_name": "@FirstSquawk",
+      "link_to_tweet": "https://twitter.com/FirstSquawk/status/1964946041968656859",
+      "created_at": "September 08, 2025 at 02:56PM",
+      "created_at_parsed": "2025-09-08T14:56:00",
+      "text": "China's oil demand to peak by 2027, with 2025 consumption up 100,000 bpd — government researcher",
+      "received_at": "2025-09-08 15:39:24",
+      "similarity": 0.7823
+    }
+  ],
+  "count": 1,
+  "limit": 10,
+  "search_params": {
+    "query": "oil prices"
+  }
+}
+```
+
+Note that semantic search requires the `transformers` library to be installed. If this library is not available, the endpoint will return a 501 error.
+
 ## Security
 
 To enable signature verification:
@@ -337,7 +379,7 @@ curl -X POST http://localhost:5000/ifttt/twitter \
 
 ## Database
 
-Tweet data is stored in a local SQLite3 database (`data/tweets.db` by default). The database is automatically created on first run and contains a single table with the following structure:
+Tweet data is stored in a local SQLite3 database (`data/tweets.db` by default). The database is automatically created on first run and contains two tables with the following structure:
 
 ```sql
 CREATE TABLE tweets (
@@ -350,9 +392,17 @@ CREATE TABLE tweets (
   received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(user_name, link_to_tweet, text)
 );
+
+CREATE TABLE embeddings (
+  tweet_id INTEGER PRIMARY KEY,
+  embedding BLOB,
+  FOREIGN KEY (tweet_id) REFERENCES tweets (id) ON DELETE CASCADE
+);
 ```
 
 The `created_at_parsed` field contains the parsed datetime version of the `created_at` field, which makes it easier to perform date-based queries. The UNIQUE constraint on `user_name`, `link_to_tweet`, and `text` prevents duplicate tweets from being saved, even with concurrent requests.
+
+The `embeddings` table stores text embeddings for each tweet, which are used for semantic search. These embeddings are generated using the `transformers` library with DistilBERT when semantic search is enabled.
 
 ## Common Tasks
 
