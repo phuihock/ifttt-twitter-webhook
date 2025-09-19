@@ -14,8 +14,9 @@ iftttwh/
 │   └── tweets.db           # SQLite database
 ├── logs/                   # Log files
 ├── migrations/             # Database migration scripts
-│   ├── 001_add_unique_constraint.sql # Migration script
-│   ├── apply_migration.py  # Python migration script
+│   ├── 000_init.sql         # Initial database schema
+│   ├── 001_restore_tweets.sql # Restore tweets data
+│   ├── apply_migration.py   # Python migration script
 │   └── README.md           # Migration documentation
 ├── requirements/           # Python requirements
 │   ├── base.txt            # Base requirements
@@ -54,7 +55,7 @@ iftttwh/
 - Health check endpoint
 - API endpoint to retrieve latest tweets
 - API endpoint to search tweets by text (with special 'from:' handling)
-- API endpoint for semantic search using DistilBERT embeddings
+- API endpoint for semantic search using ChromaDB embeddings
 - Database-level duplicate prevention using UNIQUE constraints
 - Database migration scripts for schema upgrades
 
@@ -81,8 +82,10 @@ The CreatedAt field is expected to be in a format like "September 08, 2025 at 02
    ```
    or
    ```bash
-   pip install -r requirements/base.txt
+   pip install -e .
    ```
+
+This will install all required dependencies including Flask and ChromaDB.
 
 2. Configure the server by modifying `config/config.json`:
    ```json
@@ -141,17 +144,22 @@ This allows you to pre-populate the database with initial data when deploying th
 
 ## Database Migrations
 
-If you're upgrading from an older version of the server, you may need to apply database migrations to update the schema and remove duplicates:
+The server uses a migration system to manage database schema changes. When the server starts, it automatically applies any pending migrations.
+
+To manually apply migrations:
 
 ```bash
-./migrate.sh
+python3 migrations/apply_migration.py
 ```
 
 This will:
 1. Check if the database exists
 2. Apply any needed migrations
-3. Remove duplicate tweets
-4. Add UNIQUE constraints to prevent future duplicates
+3. Add UNIQUE constraints to prevent future duplicates
+
+The migration system uses a clean schema approach with the following migrations:
+- `000_init.sql`: Initializes the database with a clean schema
+- `001_restore_tweets.sql`: Placeholder for restoring tweets data
 
 See [migrations/README.md](migrations/README.md) for more details.
 
@@ -298,7 +306,7 @@ Searches use partial matching (LIKE queries) and will match the search query in 
 
 ## Semantic Search
 
-The server now includes semantic search capabilities using the `transformers` library with DistilBERT. This allows you to find tweets that are semantically similar to your query, rather than just matching keywords.
+The server now includes semantic search capabilities using ChromaDB. This allows you to find tweets that are semantically similar to your query, rather than just matching keywords.
 
 To perform a semantic search, make a GET request to `/tweets/semantic-search` with a query parameter:
 
@@ -310,7 +318,7 @@ curl "http://localhost:5000/tweets/semantic-search?query=oil prices"
 curl "http://localhost:5000/tweets/semantic-search?query=oil prices&limit=5"
 ```
 
-The semantic search endpoint returns tweets sorted by semantic similarity to your query, with the most similar tweets first. Each tweet in the response includes a `similarity` score between 0 and 1, where 1 indicates a perfect match.
+The semantic search endpoint returns tweets sorted by semantic similarity to your query, with the most similar tweets first. 
 
 Example response:
 ```json
@@ -323,8 +331,7 @@ Example response:
       "created_at": "September 08, 2025 at 02:56PM",
       "created_at_parsed": "2025-09-08T14:56:00",
       "text": "China's oil demand to peak by 2027, with 2025 consumption up 100,000 bpd — government researcher",
-      "received_at": "2025-09-08 15:39:24",
-      "similarity": 0.7823
+      "received_at": "2025-09-08 15:39:24"
     }
   ],
   "count": 1,
@@ -335,7 +342,7 @@ Example response:
 }
 ```
 
-Note that semantic search requires the `transformers` library to be installed. If this library is not available, the endpoint will return a 501 error.
+Note that semantic search requires ChromaDB to be installed. ChromaDB uses the `all-MiniLM-L6-v2` model for generating embeddings, which provides efficient similarity search capabilities for semantic search functionality.
 
 ## Security
 
@@ -393,16 +400,16 @@ CREATE TABLE tweets (
   UNIQUE(user_name, link_to_tweet, text)
 );
 
-CREATE TABLE embeddings (
-  tweet_id INTEGER PRIMARY KEY,
-  embedding BLOB,
-  FOREIGN KEY (tweet_id) REFERENCES tweets (id) ON DELETE CASCADE
-);
+CREATE INDEX idx_tweets_created_at_parsed ON tweets(created_at_parsed);
+CREATE INDEX idx_tweets_user_name ON tweets(user_name);
+CREATE INDEX idx_tweets_text ON tweets(text);
+CREATE INDEX idx_tweets_link_to_tweet ON tweets(link_to_tweet);
+CREATE INDEX idx_tweets_created_at ON tweets(created_at);
 ```
 
 The `created_at_parsed` field contains the parsed datetime version of the `created_at` field, which makes it easier to perform date-based queries. The UNIQUE constraint on `user_name`, `link_to_tweet`, and `text` prevents duplicate tweets from being saved, even with concurrent requests.
 
-The `embeddings` table stores text embeddings for each tweet, which are used for semantic search. These embeddings are generated using the `transformers` library with DistilBERT when semantic search is enabled.
+Semantic embeddings are stored using ChromaDB in the `data/chroma_db` directory. ChromaDB provides efficient similarity search capabilities for semantic search functionality.
 
 ## Common Tasks
 
@@ -417,7 +424,13 @@ make lint        # Run code linter
 make format      # Format code with black
 make docker      # Build Docker image
 make migrate    # Apply database migrations
+make dump-csv   # Dump tweets database to CSV
+make restore-csv # Restore tweets from CSV to database
 ```
+
+### Database Backup and Restore
+
+You can backup and restore the database using the provided scripts. See [docs/database_backup_restore.md](docs/database_backup_restore.md) for detailed instructions.
 
 ## Deployment
 

@@ -10,33 +10,19 @@ import re
 from dateutil import parser as date_parser
 import csv
 import os.path
-import numpy as np
 
-# Try to import transformers for semantic search
-try:
-    from transformers import AutoTokenizer, AutoModel
-    import torch
+# Import required libraries for ChromaDB (now a prerequisite)
+import chromadb
+from chromadb.utils import embedding_functions
 
-    SEMANTIC_SEARCH_ENABLED = True
-except ImportError:
-    SEMANTIC_SEARCH_ENABLED = False
-    # We can't log here because logger isn't defined yet
-    pass
-
-# Initialize the DistilBERT model if available
-if SEMANTIC_SEARCH_ENABLED:
-    try:
-        # Load the model and tokenizer (this might take a moment on first run as it downloads the model)
-        DISTILBERT_MODEL_NAME = "distilbert-base-uncased"
-        TOKENIZER = AutoTokenizer.from_pretrained(DISTILBERT_MODEL_NAME)
-        EMBEDDING_MODEL = AutoModel.from_pretrained(DISTILBERT_MODEL_NAME)
-        # We'll log success after logger is defined
-    except Exception as e:
-        SEMANTIC_SEARCH_ENABLED = False
-        # We'll log the error after logger is defined
-else:
-    EMBEDDING_MODEL = None
-    TOKENIZER = None
+# Initialize ChromaDB client (now a prerequisite)
+CHROMA_CLIENT = chromadb.PersistentClient(path="data/chroma_db")
+SENTENCE_TRANSFORMER_EF = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+CHROMA_COLLECTION = CHROMA_CLIENT.get_or_create_collection(
+    name="tweets",
+    embedding_function=SENTENCE_TRANSFORMER_EF
+)
+CHROMADB_ENABLED = True
 
 
 # Load configuration
@@ -82,22 +68,10 @@ payload_logger.addHandler(payload_log_handler)
 payload_logger.propagate = False  # Don't propagate to other loggers
 
 # Log semantic search status after logger is defined
-if SEMANTIC_SEARCH_ENABLED:
-    try:
-        # Load the model and tokenizer (this might take a moment on first run as it downloads the model)
-        DISTILBERT_MODEL_NAME = "distilbert-base-uncased"
-        TOKENIZER = AutoTokenizer.from_pretrained(DISTILBERT_MODEL_NAME)
-        EMBEDDING_MODEL = AutoModel.from_pretrained(DISTILBERT_MODEL_NAME)
-        logger.info("Semantic search model (DistilBERT) loaded successfully")
-    except Exception as e:
-        SEMANTIC_SEARCH_ENABLED = False
-        logger.warning(f"Failed to load semantic search model: {e}")
-        EMBEDDING_MODEL = None
-        TOKENIZER = None
-else:
-    logger.warning("Semantic search is disabled because transformers is not installed")
-    EMBEDDING_MODEL = None
-    TOKENIZER = None
+logger.info("ChromaDB semantic search is enabled")
+
+if CHROMADB_ENABLED:
+    logger.info("ChromaDB semantic search is enabled")
 
 app = Flask(__name__)
 
@@ -125,120 +99,33 @@ def parse_created_at(created_at_str):
 
 
 def init_db():
-    """Initialize the SQLite database for storing tweets."""
+    """Initialize the database using the migration system."""
     try:
-        # Check if database exists
-        db_exists = os.path.exists(DB_PATH)
-
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-
-        if not db_exists:
-            # Database doesn't exist, create it
-            logger.info("Database does not exist, creating new database")
-            # Create table with unique constraint on the combination of user_name, link_to_tweet, and text
-            c.execute(
-                """CREATE TABLE tweets
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          user_name TEXT,
-                          link_to_tweet TEXT,
-                          created_at TEXT,
-                          created_at_parsed TIMESTAMP,
-                          text TEXT,
-                          received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          UNIQUE(user_name, link_to_tweet, text))"""
-            )
-
-            # Create embeddings table
-            c.execute(
-                """CREATE TABLE embeddings
-                         (tweet_id INTEGER PRIMARY KEY,
-                          embedding BLOB,
-                          FOREIGN KEY (tweet_id) REFERENCES tweets (id) ON DELETE CASCADE)"""
-            )
-
-            # Check if CSV file exists and load data
+        # Import and run the migration system
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+        from migrations.apply_migration import MigrationManager
+        
+        # Create migration manager and apply all pending migrations
+        manager = MigrationManager(DB_PATH)
+        if manager.apply_all_pending():
+            logger.info("Database migrations applied successfully")
+            
+            # Load data from CSV if it exists
             if os.path.exists(CSV_PATH):
                 logger.info(f"Loading initial data from {CSV_PATH}")
+                conn = sqlite3.connect(DB_PATH)
                 load_csv_data(conn, CSV_PATH)
+                conn.close()
+                
+                # After loading data, populate ChromaDB if enabled
+                if CHROMADB_ENABLED:
+                    populate_chromadb()
             else:
-                logger.info("No CSV file found, creating empty database")
+                logger.info("No CSV file found, database is empty")
         else:
-            # Database exists, check if it has the correct schema
-            logger.info("Database exists, checking schema")
-
-            # Check if tweets table exists
-            c.execute(
-                """SELECT name FROM sqlite_master WHERE type='table' AND name='tweets' """
-            )
-            table_exists = c.fetchone()
-
-            if not table_exists:
-                # Create table with unique constraint
-                c.execute(
-                    """CREATE TABLE tweets
-                             (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              user_name TEXT,
-                              link_to_tweet TEXT,
-                              created_at TEXT,
-                              created_at_parsed TIMESTAMP,
-                              text TEXT,
-                              received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                              UNIQUE(user_name, link_to_tweet, text))"""
-                )
-            else:
-                # Check if UNIQUE constraint exists by trying to add it
-                try:
-                    # Try to add the unique constraint
-                    c.execute(
-                        """CREATE UNIQUE INDEX IF NOT EXISTS idx_tweets_unique 
-                                 ON tweets(user_name, link_to_tweet, text)"""
-                    )
-                except sqlite3.Error as e:
-                    logger.debug(
-                        f"Unique index already exists or error creating it: {e}"
-                    )
-
-                # Check if created_at_parsed column exists
-                c.execute("""PRAGMA table_info(tweets)""")
-                columns = [column[1] for column in c.fetchall()]
-
-                if "created_at_parsed" not in columns:
-                    # Add the created_at_parsed column
-                    c.execute(
-                        """ALTER TABLE tweets ADD COLUMN created_at_parsed TIMESTAMP"""
-                    )
-
-            # Check if embeddings table exists
-            c.execute(
-                """SELECT name FROM sqlite_master WHERE type='table' AND name='embeddings' """
-            )
-            embeddings_table_exists = c.fetchone()
-
-            if not embeddings_table_exists:
-                # Create embeddings table
-                c.execute(
-                    """CREATE TABLE embeddings
-                             (tweet_id INTEGER PRIMARY KEY,
-                              embedding BLOB,
-                              FOREIGN KEY (tweet_id) REFERENCES tweets (id) ON DELETE CASCADE)"""
-                )
-
-        # Create indexes for better performance
-        c.execute(
-            """CREATE INDEX IF NOT EXISTS idx_tweets_created_at_parsed ON tweets(created_at_parsed)"""
-        )
-        c.execute(
-            """CREATE INDEX IF NOT EXISTS idx_tweets_user_name ON tweets(user_name)"""
-        )
-        c.execute("""CREATE INDEX IF NOT EXISTS idx_tweets_text ON tweets(text)""")
-        c.execute(
-            """CREATE INDEX IF NOT EXISTS idx_embeddings_tweet_id ON embeddings(tweet_id)"""
-        )
-
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized successfully")
+            logger.error("Failed to apply database migrations")
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
 
@@ -246,15 +133,17 @@ def init_db():
 def load_csv_data(conn, csv_path):
     """Load data from CSV file into the database.
 
-    Assumes CSV has no header row and columns are in order:
+    Assumes CSV has a header row and columns in order:
     CreatedAt, UserName, Text, LinkToTweet
     """
     try:
         c = conn.cursor()
         with open(csv_path, "r", encoding="utf-8") as csvfile:
-            # Skip header row if it exists (but we assume no header)
             reader = csv.reader(csvfile)
-
+            
+            # Skip header row
+            next(reader, None)
+            
             count = 0
             for row in reader:
                 # Skip empty rows
@@ -324,33 +213,24 @@ def save_tweet_to_db(tweet_data):
             tweet_id = c.lastrowid
             conn.commit()
 
-            # Generate and store embedding if semantic search is enabled
-            if SEMANTIC_SEARCH_ENABLED and tweet_id:
-                try:
-                    # Generate embedding for the tweet text using DistilBERT
-                    inputs = TOKENIZER(
-                        text, return_tensors="pt", truncation=True, padding=True
-                    )
-                    with torch.no_grad():
-                        outputs = EMBEDDING_MODEL(**inputs)
-                        # Use the mean of the last hidden state as the embedding
-                        embedding = outputs.last_hidden_state.mean(dim=1).numpy()
-
-                    # Convert to bytes for storage
-                    embedding_bytes = embedding.tobytes()
-
-                    # Store embedding in database
-                    c.execute(
-                        """INSERT OR REPLACE INTO embeddings (tweet_id, embedding)
-                                 VALUES (?, ?)""",
-                        (tweet_id, embedding_bytes),
-                    )
-                    conn.commit()
-                    logger.debug(f"Embedding stored for tweet {tweet_id}")
-                except Exception as e:
-                    logger.error(
-                        f"Failed to generate or store embedding for tweet {tweet_id}: {e}"
-                    )
+            # Add to ChromaDB
+            try:
+                CHROMA_COLLECTION.add(
+                    documents=[text],
+                    metadatas=[{
+                        "tweet_id": tweet_id,
+                        "user_name": user_name,
+                        "link_to_tweet": link_to_tweet,
+                        "created_at": created_at_str,
+                        "created_at_parsed": created_at_parsed
+                    }],
+                    ids=[str(tweet_id)]
+                )
+                logger.debug(f"Tweet added to ChromaDB collection: {tweet_id}")
+            except Exception as e:
+                logger.error(
+                    f"Failed to add tweet to ChromaDB collection {tweet_id}: {e}"
+                )
 
             conn.close()
             logger.info("Tweet saved to database successfully")
@@ -466,96 +346,113 @@ def get_latest_tweets(limit=10):
         return []
 
 
-def semantic_search_tweets(query_text, limit=10):
-    """Search for tweets using semantic similarity.
-
-    Args:
-        query_text (str): Text to search for semantically
-        limit (int): Maximum number of tweets to return (default: 10)
-
-    Returns:
-        list: List of tweet dictionaries with similarity scores
-    """
-    if not SEMANTIC_SEARCH_ENABLED:
-        logger.warning("Semantic search is disabled")
-        return []
-
+def populate_chromadb():
+    """Populate ChromaDB with existing tweets from SQLite database."""
     try:
+        logger.info("Populating ChromaDB with existing tweets...")
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-
-        # Generate embedding for the query using DistilBERT
-        inputs = TOKENIZER(
-            query_text, return_tensors="pt", truncation=True, padding=True
-        )
-        with torch.no_grad():
-            outputs = EMBEDDING_MODEL(**inputs)
-            # Use the mean of the last hidden state as the embedding
-            query_embedding = outputs.last_hidden_state.mean(dim=1).numpy()
-
-        # Get all tweet embeddings from database
+        
+        # Get all tweets from database
         c.execute(
-            """SELECT t.id, t.user_name, t.link_to_tweet, t.created_at, 
-                     t.created_at_parsed, t.text, t.received_at, e.embedding
-                     FROM tweets t
-                     JOIN embeddings e ON t.id = e.tweet_id
-                     ORDER BY t.created_at_parsed DESC, t.created_at DESC"""
+            """SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text
+                     FROM tweets
+                     ORDER BY created_at_parsed DESC, created_at DESC"""
         )
-
         rows = c.fetchall()
         conn.close()
 
         if not rows:
-            return []
+            logger.info("No tweets found to populate ChromaDB")
+            return
 
-        # Calculate similarities
-        similarities = []
+        # Prepare data for ChromaDB
+        documents = []
+        metadatas = []
+        ids = []
+        
         for row in rows:
-            # Convert embedding bytes back to numpy array
-            embedding_bytes = row[7]
-            tweet_embedding = np.frombuffer(embedding_bytes, dtype=np.float32)
+            tweet_id, user_name, link_to_tweet, created_at, created_at_parsed, text = row
+            
+            # Skip if text is empty
+            if not text:
+                continue
+                
+            documents.append(text)
+            metadatas.append({
+                "tweet_id": tweet_id,
+                "user_name": user_name,
+                "link_to_tweet": link_to_tweet,
+                "created_at": created_at,
+                "created_at_parsed": created_at_parsed
+            })
+            ids.append(str(tweet_id))
 
-            # Calculate cosine similarity
-            # Normalize vectors
-            query_norm = np.linalg.norm(query_embedding)
-            tweet_norm = np.linalg.norm(tweet_embedding)
-
-            if query_norm == 0 or tweet_norm == 0:
-                similarity = 0
-            else:
-                # Calculate cosine similarity
-                similarity = np.dot(query_embedding, tweet_embedding) / (
-                    query_norm * tweet_norm
-                )
-
-            similarities.append((row, similarity))
-
-        # Sort by similarity (descending)
-        similarities.sort(key=lambda x: x[1], reverse=True)
-
-        # Take top N results
-        top_similarities = similarities[:limit]
-
-        # Convert to list of dictionaries
-        tweets = []
-        for row, similarity in top_similarities:
-            tweets.append(
-                {
-                    "id": row[0],
-                    "user_name": row[1],
-                    "link_to_tweet": row[2],
-                    "created_at": row[3],
-                    "created_at_parsed": row[4],
-                    "text": row[5],
-                    "received_at": row[6],
-                    "similarity": float(similarity),
-                }
+        # Add to ChromaDB in batches to avoid memory issues
+        batch_size = 100
+        for i in range(0, len(documents), batch_size):
+            batch_documents = documents[i:i+batch_size]
+            batch_metadatas = metadatas[i:i+batch_size]
+            batch_ids = ids[i:i+batch_size]
+            
+            CHROMA_COLLECTION.add(
+                documents=batch_documents,
+                metadatas=batch_metadatas,
+                ids=batch_ids
             )
+            
+        logger.info(f"Successfully populated ChromaDB with {len(documents)} tweets")
+    except Exception as e:
+        logger.error(f"Failed to populate ChromaDB: {e}")
 
+
+def semantic_search_tweets(query_text, limit=10):
+    """Search for tweets using semantic similarity with ChromaDB.
+    
+    Args:
+        query_text (str): Text to search for semantically
+        limit (int): Maximum number of tweets to return (default: 10)
+        
+    Returns:
+        list: List of tweet dictionaries with similarity scores
+    """
+    try:
+        logger.debug(f"Performing semantic search with ChromaDB: {query_text}")
+        results = CHROMA_COLLECTION.query(
+            query_texts=[query_text],
+            n_results=limit
+        )
+        
+        # Convert results to the expected format
+        tweets = []
+        for i in range(len(results['ids'][0])):
+            metadata = results['metadatas'][0][i]
+            tweets.append({
+                "id": metadata["tweet_id"],
+                "user_name": metadata["user_name"],
+                "link_to_tweet": metadata["link_to_tweet"],
+                "created_at": metadata["created_at"],
+                "created_at_parsed": metadata["created_at_parsed"],
+                "text": results['documents'][0][i],
+                "similarity": results['distances'][0][i] if 'distances' in results else None
+            })
+        
         return tweets
     except Exception as e:
-        logger.error(f"Failed to perform semantic search: {e}")
-    """Verify that the payload was sent from IFTTT by validating SHA256.\n\n    Args:\n        payload_body: original request body to verify (bytes)\n        secret_token: webhook secret token (str)\n        signature_header: value of X-Signature header (str)\n    Returns:\n        bool: True if the signature is valid, False otherwise\n    """
+        logger.error(f"Failed to perform semantic search with ChromaDB: {e}")
+        return []
+
+
+def verify_signature(payload_body, secret_token, signature_header):
+    """Verify that the payload was sent from IFTTT by validating SHA256.
+
+    Args:
+        payload_body: original request body to verify (bytes)
+        secret_token: webhook secret token (str)
+        signature_header: value of X-Signature header (str)
+    Returns:
+        bool: True if the signature is valid, False otherwise
+    """
     if not signature_header:
         return False
     expected_signature = hmac.new(
@@ -571,73 +468,6 @@ def handle_ifttt_twitter_webhook():
     # Get request data
     signature_header = request.headers.get("X-Signature")
     payload = request.get_data()
-
-    # Log the raw payload for debugging
-    try:
-        payload_json = request.get_json()
-        payload_logger.debug(f"Received payload: {json.dumps(payload_json, indent=2)}")
-        logger.debug("Payload logged to debug file")
-    except Exception as e:
-        payload_str = payload.decode("utf-8", errors="replace")
-        payload_logger.debug(f"Received payload (raw): {payload_str}")
-        logger.debug(f"Payload logged to debug file (raw): {e}")
-
-    # Verify signature if required
-    if REQUIRE_SIGNATURE:
-        if not verify_signature(payload, SECRET_KEY, signature_header):
-            logger.warning("Signature verification failed")
-            payload_logger.debug("Signature verification failed")
-            return jsonify({"error": "Invalid signature"}), 401
-
-    # Parse JSON payload
-    try:
-        data = request.get_json()
-        if data is None:
-            logger.error("Invalid JSON in IFTTT Twitter webhook request")
-            payload_logger.debug("Invalid JSON in request")
-            return jsonify({"error": "Invalid JSON"}), 400
-    except Exception as e:
-        logger.error(f"Error parsing JSON: {str(e)}")
-        payload_logger.debug(f"Error parsing JSON: {str(e)}")
-        return jsonify({"error": "Error parsing JSON"}), 400
-
-    # Extract Twitter post information
-    user_name = data.get("UserName", "unknown")
-    link_to_tweet = data.get("LinkToTweet", "")
-    created_at = data.get("CreatedAt", "")
-    text = data.get("Text", "")
-
-    # Log the event
-    logger.info(f"Received Twitter post from {user_name}")
-    logger.info(f"Tweet: {text}")
-    logger.info(f"Created at: {created_at}")
-    logger.info(f"Link: {link_to_tweet}")
-
-    # Save to database
-    if save_tweet_to_db(data):
-        logger.info("Tweet data processed successfully")
-        payload_logger.debug("Tweet data processed successfully")
-    else:
-        logger.error("Failed to process tweet data")
-        payload_logger.debug("Failed to process tweet data")
-        return jsonify({"error": "Failed to process tweet data"}), 500
-
-    # Process the Twitter post
-    # Here you could add custom logic such as:
-    # - Sending notifications
-    # - Triggering other actions
-
-    return jsonify(
-        {
-            "message": f"Successfully processed Twitter post from {user_name}",
-            "user_name": user_name,
-            "created_at": created_at,
-            "link_to_tweet": link_to_tweet,
-        }
-    )
-
-
-@app.route("/tweets/latest", methods=["GET"])
 def get_latest_tweets_route():
     # Get the latest n tweets from the database, sorted by createdAt
     # Get limit parameter from query string, default to 10
@@ -708,10 +538,6 @@ def semantic_search_tweets_route():
     # Validate that query text parameter is provided
     if not query_text:
         return jsonify({"error": "Query parameter is required"}), 400
-
-    # Check if semantic search is enabled
-    if not SEMANTIC_SEARCH_ENABLED:
-        return jsonify({"error": "Semantic search is not enabled on this server"}), 501
 
     # Search tweets semantically
     tweets = semantic_search_tweets(query_text=query_text, limit=limit)
