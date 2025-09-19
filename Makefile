@@ -18,6 +18,8 @@ help:
 	@echo "  format      - Format code with black"
 	@echo "  docker      - Build Docker image"
 	@echo "  migrate     - Apply database migrations (generic framework)"
+	@echo "  dump-csv    - Dump tweets database to CSV"
+	@echo "  restore-csv - Restore tweets from CSV to database"
 	@echo "  help        - Show this help message"
 
 # Install dependencies
@@ -90,3 +92,13 @@ migrate:
 install-all:
 	$(PIP) install -r requirements/base.txt
 	$(PIP) install -r requirements/dev.txt
+
+# Dump tweets database to CSV
+.PHONY: dump-csv
+dump-csv:
+	$(PYTHON) dump_tweets_to_csv.py
+
+# Restore tweets from CSV to database
+.PHONY: restore-csv
+restore-csv:
+	$(PYTHON) restore_tweets_from_csv.py

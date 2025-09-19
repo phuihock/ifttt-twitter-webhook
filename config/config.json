@@ -14,7 +14,7 @@
   },
   "database": {
     "path": "data/tweets.db",
-    "csv_path": "data/Tweets - Sheet1.csv"
+    "csv_path": "data/tweets_dump.csv"
   },
   "debug_logging": {
     "payload_log_file": "logs/payload.log"
