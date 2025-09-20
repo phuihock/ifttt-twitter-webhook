@@ -1,18 +1,40 @@
 version: '3.8'
 
 services:
+  huggingface-embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data/huggingface-cache:/data
+    environment:
+      - MODEL_ID=Qwen/Qwen3-Embedding-0.6B
+    restart: unless-stopped
+
   ifttt-twitter-webhook:
+    image: ghcr.io/phuihock/ifttt-twitter-webhook:main
     build:
       context: .
-      dockerfile: Dockerfile.vps
+      dockerfile: Dockerfile
     ports:
-      - "5000:5000"
+      - "5001:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config
-      - ./chroma_db:/app/data/chroma_db
     environment:
       - FLASK_APP=src/main.py
       - FLASK_ENV=production
+      - ANONYMIZED_TELEMETRY=False
+      - CHROMA_TELEMETRY=False
+      - USER_ID=${USER_ID:-1000}
+      - GROUP_ID=${GROUP_ID:-1000}
     restart: unless-stopped
+    depends_on:
+      - huggingface-embeddings
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

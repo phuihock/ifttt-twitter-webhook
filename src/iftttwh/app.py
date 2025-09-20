@@ -13,15 +13,81 @@ import os.path
 
 # Import required libraries for ChromaDB (now a prerequisite)
 import chromadb
-from chromadb.utils import embedding_functions
+from chromadb import Documents, EmbeddingFunction, Embeddings
+import requests
+import json
 
-# Initialize ChromaDB client (now a prerequisite)
+
+# Custom embedding function for local Hugging Face server
+class LocalHuggingFaceEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, server_url="http://huggingface-embeddings:80"):
+        self.server_url = server_url.rstrip("/")
+
+    def __call__(self, input: Documents) -> Embeddings:
+        """Generate embeddings for the given documents using local Hugging Face server."""
+        try:
+            # Prepare the request payload
+            payload = {"inputs": input}
+
+            # Make request to the local server
+            response = requests.post(
+                f"{self.server_url}/embed",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+
+            if response.status_code == 200:
+                embeddings = response.json()
+                # Ensure we return a list of lists (embeddings for each document)
+                if isinstance(embeddings, list) and len(embeddings) > 0:
+                    # If it's a list of embeddings, return as is
+                    if isinstance(embeddings[0], list):
+                        return embeddings
+                    # If it's a single embedding, wrap it in a list
+                    else:
+                        return [embeddings]
+                else:
+                    raise ValueError(
+                        f"Unexpected response format from server: {embeddings}"
+                    )
+            else:
+                raise Exception(
+                    f"Server returned status code {response.status_code}: {response.text}"
+                )
+
+        except Exception as e:
+            print(f"Failed to get embeddings from local Hugging Face server: {e}")
+            raise  # Initialize ChromaDB client (now a prerequisite)
+
+
 CHROMA_CLIENT = chromadb.PersistentClient(path="data/chroma_db")
-SENTENCE_TRANSFORMER_EF = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-CHROMA_COLLECTION = CHROMA_CLIENT.get_or_create_collection(
-    name="tweets",
-    embedding_function=SENTENCE_TRANSFORMER_EF
-)
+LOCAL_HF_EF = LocalHuggingFaceEmbeddingFunction(server_url="http://localhost:8080")
+
+# Try to get or create collection, handling embedding function conflicts
+try:
+    CHROMA_COLLECTION = CHROMA_CLIENT.get_or_create_collection(
+        name="tweets", embedding_function=LOCAL_HF_EF
+    )
+except ValueError as e:
+    if "embedding function already exists" in str(e):
+        print(
+            "Embedding function conflict detected. Recreating collection with new embedding function..."
+        )
+        # Delete the existing collection
+        try:
+            CHROMA_CLIENT.delete_collection(name="tweets")
+            print("Deleted existing collection")
+        except Exception as delete_e:
+            print(f"Failed to delete existing collection: {delete_e}")
+
+        # Create new collection with the local Hugging Face embedding function
+        CHROMA_COLLECTION = CHROMA_CLIENT.create_collection(
+            name="tweets", embedding_function=LOCAL_HF_EF
+        )
+        print("Created new collection with local Hugging Face embedding function")
+    else:
+        raise
+
 CHROMADB_ENABLED = True
 
 
@@ -67,6 +133,37 @@ payload_log_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 payload_logger.addHandler(payload_log_handler)
 payload_logger.propagate = False  # Don't propagate to other loggers
 
+# Initialize ChromaDB client after logger is configured
+CHROMA_CLIENT = chromadb.PersistentClient(path="data/chroma_db")
+LOCAL_HF_EF = LocalHuggingFaceEmbeddingFunction(server_url="http://localhost:8080")
+
+# Try to get or create collection, handling embedding function conflicts
+try:
+    CHROMA_COLLECTION = CHROMA_CLIENT.get_or_create_collection(
+        name="tweets", embedding_function=LOCAL_HF_EF
+    )
+except ValueError as e:
+    if "embedding function already exists" in str(e):
+        logger.info(
+            "Embedding function conflict detected. Recreating collection with new embedding function..."
+        )
+        # Delete the existing collection
+        try:
+            CHROMA_CLIENT.delete_collection(name="tweets")
+            logger.info("Deleted existing collection")
+        except Exception as delete_e:
+            logger.warning(f"Failed to delete existing collection: {delete_e}")
+
+        # Create new collection with the local Hugging Face embedding function
+        CHROMA_COLLECTION = CHROMA_CLIENT.create_collection(
+            name="tweets", embedding_function=LOCAL_HF_EF
+        )
+        logger.info("Created new collection with local Hugging Face embedding function")
+    else:
+        raise
+
+CHROMADB_ENABLED = True
+
 # Log semantic search status after logger is defined
 logger.info("ChromaDB semantic search is enabled")
 
@@ -104,21 +201,22 @@ def init_db():
         # Import and run the migration system
         import sys
         import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+        sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
         from migrations.apply_migration import MigrationManager
-        
+
         # Create migration manager and apply all pending migrations
         manager = MigrationManager(DB_PATH)
         if manager.apply_all_pending():
             logger.info("Database migrations applied successfully")
-            
+
             # Load data from CSV if it exists
             if os.path.exists(CSV_PATH):
                 logger.info(f"Loading initial data from {CSV_PATH}")
                 conn = sqlite3.connect(DB_PATH)
                 load_csv_data(conn, CSV_PATH)
                 conn.close()
-                
+
                 # After loading data, populate ChromaDB if enabled
                 if CHROMADB_ENABLED:
                     populate_chromadb()
@@ -140,10 +238,10 @@ def load_csv_data(conn, csv_path):
         c = conn.cursor()
         with open(csv_path, "r", encoding="utf-8") as csvfile:
             reader = csv.reader(csvfile)
-            
+
             # Skip header row
             next(reader, None)
-            
+
             count = 0
             for row in reader:
                 # Skip empty rows
@@ -217,14 +315,16 @@ def save_tweet_to_db(tweet_data):
             try:
                 CHROMA_COLLECTION.add(
                     documents=[text],
-                    metadatas=[{
-                        "tweet_id": tweet_id,
-                        "user_name": user_name,
-                        "link_to_tweet": link_to_tweet,
-                        "created_at": created_at_str,
-                        "created_at_parsed": created_at_parsed
-                    }],
-                    ids=[str(tweet_id)]
+                    metadatas=[
+                        {
+                            "tweet_id": tweet_id,
+                            "user_name": user_name,
+                            "link_to_tweet": link_to_tweet,
+                            "created_at": created_at_str,
+                            "created_at_parsed": created_at_parsed,
+                        }
+                    ],
+                    ids=[str(tweet_id)],
                 )
                 logger.debug(f"Tweet added to ChromaDB collection: {tweet_id}")
             except Exception as e:
@@ -352,7 +452,7 @@ def populate_chromadb():
         logger.info("Populating ChromaDB with existing tweets...")
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        
+
         # Get all tweets from database
         c.execute(
             """SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text
@@ -370,37 +470,39 @@ def populate_chromadb():
         documents = []
         metadatas = []
         ids = []
-        
+
         for row in rows:
-            tweet_id, user_name, link_to_tweet, created_at, created_at_parsed, text = row
-            
+            tweet_id, user_name, link_to_tweet, created_at, created_at_parsed, text = (
+                row
+            )
+
             # Skip if text is empty
             if not text:
                 continue
-                
+
             documents.append(text)
-            metadatas.append({
-                "tweet_id": tweet_id,
-                "user_name": user_name,
-                "link_to_tweet": link_to_tweet,
-                "created_at": created_at,
-                "created_at_parsed": created_at_parsed
-            })
+            metadatas.append(
+                {
+                    "tweet_id": tweet_id,
+                    "user_name": user_name,
+                    "link_to_tweet": link_to_tweet,
+                    "created_at": created_at,
+                    "created_at_parsed": created_at_parsed,
+                }
+            )
             ids.append(str(tweet_id))
 
         # Add to ChromaDB in batches to avoid memory issues
-        batch_size = 100
+        batch_size = 32  # Match Hugging Face server batch size limit
         for i in range(0, len(documents), batch_size):
-            batch_documents = documents[i:i+batch_size]
-            batch_metadatas = metadatas[i:i+batch_size]
-            batch_ids = ids[i:i+batch_size]
-            
+            batch_documents = documents[i : i + batch_size]
+            batch_metadatas = metadatas[i : i + batch_size]
+            batch_ids = ids[i : i + batch_size]
+
             CHROMA_COLLECTION.add(
-                documents=batch_documents,
-                metadatas=batch_metadatas,
-                ids=batch_ids
+                documents=batch_documents, metadatas=batch_metadatas, ids=batch_ids
             )
-            
+
         logger.info(f"Successfully populated ChromaDB with {len(documents)} tweets")
     except Exception as e:
         logger.error(f"Failed to populate ChromaDB: {e}")
@@ -408,35 +510,36 @@ def populate_chromadb():
 
 def semantic_search_tweets(query_text, limit=10):
     """Search for tweets using semantic similarity with ChromaDB.
-    
+
     Args:
         query_text (str): Text to search for semantically
         limit (int): Maximum number of tweets to return (default: 10)
-        
+
     Returns:
         list: List of tweet dictionaries with similarity scores
     """
     try:
         logger.debug(f"Performing semantic search with ChromaDB: {query_text}")
-        results = CHROMA_COLLECTION.query(
-            query_texts=[query_text],
-            n_results=limit
-        )
-        
+        results = CHROMA_COLLECTION.query(query_texts=[query_text], n_results=limit)
+
         # Convert results to the expected format
         tweets = []
-        for i in range(len(results['ids'][0])):
-            metadata = results['metadatas'][0][i]
-            tweets.append({
-                "id": metadata["tweet_id"],
-                "user_name": metadata["user_name"],
-                "link_to_tweet": metadata["link_to_tweet"],
-                "created_at": metadata["created_at"],
-                "created_at_parsed": metadata["created_at_parsed"],
-                "text": results['documents'][0][i],
-                "similarity": results['distances'][0][i] if 'distances' in results else None
-            })
-        
+        for i in range(len(results["ids"][0])):
+            metadata = results["metadatas"][0][i]
+            tweets.append(
+                {
+                    "id": metadata["tweet_id"],
+                    "user_name": metadata["user_name"],
+                    "link_to_tweet": metadata["link_to_tweet"],
+                    "created_at": metadata["created_at"],
+                    "created_at_parsed": metadata["created_at_parsed"],
+                    "text": results["documents"][0][i],
+                    "similarity": (
+                        results["distances"][0][i] if "distances" in results else None
+                    ),
+                }
+            )
+
         return tweets
     except Exception as e:
         logger.error(f"Failed to perform semantic search with ChromaDB: {e}")
@@ -468,6 +571,8 @@ def handle_ifttt_twitter_webhook():
     # Get request data
     signature_header = request.headers.get("X-Signature")
     payload = request.get_data()
+
+
 def get_latest_tweets_route():
     # Get the latest n tweets from the database, sorted by createdAt
     # Get limit parameter from query string, default to 10
