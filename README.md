@@ -21,6 +21,9 @@ iftttwh/
 ├── requirements/           # Python requirements
 │   ├── base.txt            # Base requirements
 │   └── dev.txt             # Development requirements
+├── scripts/                # Utility scripts
+│   ├── dump_tweets_to_csv.py    # Export tweets to CSV
+│   └── restore_tweets_from_csv.py # Import tweets from CSV
 ├── src/                    # Source code
 │   ├── __init__.py
 │   ├── main.py             # Entry point
@@ -29,6 +32,9 @@ iftttwh/
 │       └── app.py          # Main application
 ├── tests/                  # Test files
 │   ├── __init__.py
+│   ├── test_chromadb.py    # ChromaDB tests
+│   ├── test_current_implementation.py # Implementation tests
+│   ├── test_migration.py   # Migration tests
 │   └── test_webhook.py     # Webhook tests
 ├── .env.example            # Example environment variables
 ├── .gitignore              # Git ignore file

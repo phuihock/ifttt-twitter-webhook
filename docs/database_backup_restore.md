@@ -4,7 +4,7 @@ This document describes how to backup and restore the tweets database using the 
 
 ## Dump Tweets to CSV
 
-The `dump_tweets_to_csv.py` script exports all tweets from the SQLite database to a CSV file.
+The `scripts/dump_tweets_to_csv.py` script exports all tweets from the SQLite database to a CSV file.
 
 ### Usage
 
@@ -13,13 +13,13 @@ The `dump_tweets_to_csv.py` script exports all tweets from the SQLite database t
 make dump-csv
 
 # Direct execution
-python3 dump_tweets_to_csv.py
+python3 scripts/dump_tweets_to_csv.py
 
 # With custom output file
-python3 dump_tweets_to_csv.py /path/to/output.csv
+python3 scripts/dump_tweets_to_csv.py /path/to/output.csv
 
 # With custom database and output file
-python3 dump_tweets_to_csv.py /path/to/output.csv /path/to/database.db
+python3 scripts/dump_tweets_to_csv.py /path/to/output.csv /path/to/database.db
 ```
 
 ### Output Format
@@ -32,7 +32,7 @@ The CSV file will have the following columns:
 
 ## Restore Tweets from CSV
 
-The `restore_tweets_from_csv.py` script imports tweets from a CSV file to the SQLite database.
+The `scripts/restore_tweets_from_csv.py` script imports tweets from a CSV file to the SQLite database.
 
 ### Usage
 
@@ -41,13 +41,13 @@ The `restore_tweets_from_csv.py` script imports tweets from a CSV file to the SQ
 make restore-csv
 
 # Direct execution
-python3 restore_tweets_from_csv.py
+python3 scripts/restore_tweets_from_csv.py
 
 # With custom input file
-python3 restore_tweets_from_csv.py /path/to/input.csv
+python3 scripts/restore_tweets_from_csv.py /path/to/input.csv
 
 # With custom CSV file and database
-python3 restore_tweets_from_csv.py /path/to/input.csv /path/to/database.db
+python3 scripts/restore_tweets_from_csv.py /path/to/input.csv /path/to/database.db
 ```
 
 ### Input Format

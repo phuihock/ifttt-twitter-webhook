@@ -96,9 +96,9 @@ install-all:
 # Dump tweets database to CSV
 .PHONY: dump-csv
 dump-csv:
-	$(PYTHON) dump_tweets_to_csv.py
+	$(PYTHON) scripts/dump_tweets_to_csv.py
 
 # Restore tweets from CSV to database
 .PHONY: restore-csv
 restore-csv:
-	$(PYTHON) restore_tweets_from_csv.py
+	$(PYTHON) scripts/restore_tweets_from_csv.py

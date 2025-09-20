@@ -8,7 +8,7 @@ import sys
 import sqlite3
 
 # Add the src directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from iftttwh.app import init_db, semantic_search_tweets, DB_PATH
 
