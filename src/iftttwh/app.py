@@ -61,7 +61,11 @@ class LocalHuggingFaceEmbeddingFunction(EmbeddingFunction):
 
 
 CHROMA_CLIENT = chromadb.PersistentClient(path="data/chroma_db")
-LOCAL_HF_EF = LocalHuggingFaceEmbeddingFunction(server_url="http://localhost:8080")
+# Allow overriding embeddings server URL via env; default to docker service name
+HF_EMBEDDINGS_URL = os.environ.get(
+    "HF_EMBEDDINGS_URL", "http://huggingface-embeddings:80"
+)
+LOCAL_HF_EF = LocalHuggingFaceEmbeddingFunction(server_url=HF_EMBEDDINGS_URL)
 
 # Try to get or create collection, handling embedding function conflicts
 try:
@@ -135,7 +139,10 @@ payload_logger.propagate = False  # Don't propagate to other loggers
 
 # Initialize ChromaDB client after logger is configured
 CHROMA_CLIENT = chromadb.PersistentClient(path="data/chroma_db")
-LOCAL_HF_EF = LocalHuggingFaceEmbeddingFunction(server_url="http://localhost:8080")
+HF_EMBEDDINGS_URL = os.environ.get(
+    "HF_EMBEDDINGS_URL", "http://huggingface-embeddings:80"
+)
+LOCAL_HF_EF = LocalHuggingFaceEmbeddingFunction(server_url=HF_EMBEDDINGS_URL)
 
 # Try to get or create collection, handling embedding function conflicts
 try:
@@ -216,12 +223,12 @@ def init_db():
                 conn = sqlite3.connect(DB_PATH)
                 load_csv_data(conn, CSV_PATH)
                 conn.close()
-
-                # After loading data, populate ChromaDB if enabled
-                if CHROMADB_ENABLED:
-                    populate_chromadb()
             else:
-                logger.info("No CSV file found, database is empty")
+                logger.info("No CSV file found, skipping CSV load")
+
+            # Populate ChromaDB with any missing tweets (incremental)
+            if CHROMADB_ENABLED:
+                populate_chromadb()
         else:
             logger.error("Failed to apply database migrations")
     except Exception as e:
@@ -447,23 +454,58 @@ def get_latest_tweets(limit=10):
 
 
 def populate_chromadb():
-    """Populate ChromaDB with existing tweets from SQLite database."""
+    """Populate ChromaDB with existing tweets from SQLite database, resuming from last added tweet."""
     try:
-        logger.info("Populating ChromaDB with existing tweets...")
+        logger.info("Checking ChromaDB status for incremental population...")
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
 
-        # Get all tweets from database
-        c.execute(
-            """SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text
-                     FROM tweets
-                     ORDER BY created_at_parsed DESC, created_at DESC"""
-        )
+        # Check if ChromaDB already has tweets and get the last tweet_id
+        max_chroma_id = None
+        try:
+            results = CHROMA_COLLECTION.get(include=["metadatas"])
+            if results["metadatas"]:
+                tweet_ids = [
+                    int(metadata["tweet_id"])
+                    for metadata in results["metadatas"]
+                    if metadata.get("tweet_id") is not None
+                ]
+                if tweet_ids:
+                    max_chroma_id = max(tweet_ids)
+                    logger.info(
+                        f"ChromaDB already contains tweets up to tweet_id {max_chroma_id}, resuming from there"
+                    )
+                else:
+                    logger.info("ChromaDB is empty, starting population from beginning")
+            else:
+                logger.info("ChromaDB is empty, starting population from beginning")
+        except Exception as e:
+            logger.warning(
+                f"Failed to check ChromaDB status: {e}, starting population from beginning"
+            )
+            max_chroma_id = None
+
+        # Get tweets from database that haven't been added to ChromaDB yet
+        if max_chroma_id is not None:
+            c.execute(
+                """SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text
+                         FROM tweets
+                         WHERE id > ?
+                         ORDER BY id ASC""",
+                (max_chroma_id,),
+            )
+        else:
+            c.execute(
+                """SELECT id, user_name, link_to_tweet, created_at, created_at_parsed, text
+                         FROM tweets
+                         ORDER BY id ASC"""
+            )
+
         rows = c.fetchall()
         conn.close()
 
         if not rows:
-            logger.info("No tweets found to populate ChromaDB")
+            logger.info("No new tweets found to add to ChromaDB")
             return
 
         # Prepare data for ChromaDB
@@ -503,7 +545,7 @@ def populate_chromadb():
                 documents=batch_documents, metadatas=batch_metadatas, ids=batch_ids
             )
 
-        logger.info(f"Successfully populated ChromaDB with {len(documents)} tweets")
+        logger.info(f"Successfully added {len(documents)} new tweets to ChromaDB")
     except Exception as e:
         logger.error(f"Failed to populate ChromaDB: {e}")
 
@@ -573,6 +615,7 @@ def handle_ifttt_twitter_webhook():
     payload = request.get_data()
 
 
+@app.route("/tweets/latest", methods=["GET"])
 def get_latest_tweets_route():
     # Get the latest n tweets from the database, sorted by createdAt
     # Get limit parameter from query string, default to 10
