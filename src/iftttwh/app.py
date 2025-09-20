@@ -382,9 +382,8 @@ def search_tweets(search_text=None, limit=10):
                 query += " AND user_name LIKE ?"
                 params.append(f"%{username_filter}%")
             else:
-                # Regular search in both user_name and text fields
-                query += " AND (user_name LIKE ? OR text LIKE ?)"
-                params.append(f"%{search_text}%")
+                # Regular search in text fields
+                query += " AND text LIKE ?"
                 params.append(f"%{search_text}%")
 
         query += " ORDER BY created_at_parsed DESC, created_at DESC LIMIT ?"
