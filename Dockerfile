@@ -54,6 +54,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copy application code
 COPY --chown=app:appgroup src/ src/
 
+# Copy migrations for runtime database initialization
+COPY --chown=app:appgroup migrations/ migrations/
+
 # Don't switch to non-root user here - let entrypoint handle it
 # USER app
 
