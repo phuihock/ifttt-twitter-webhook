@@ -137,8 +137,9 @@ payload_log_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 payload_logger.addHandler(payload_log_handler)
 payload_logger.propagate = False  # Don't propagate to other loggers
 
-# Initialize ChromaDB client after logger is configured
+# Initialize ChromaDB client and collection
 CHROMA_CLIENT = chromadb.PersistentClient(path="data/chroma_db")
+# Allow overriding embeddings server URL via env; default to docker service name
 HF_EMBEDDINGS_URL = os.environ.get(
     "HF_EMBEDDINGS_URL", "http://huggingface-embeddings:80"
 )
@@ -170,12 +171,6 @@ except ValueError as e:
         raise
 
 CHROMADB_ENABLED = True
-
-# Log semantic search status after logger is defined
-logger.info("ChromaDB semantic search is enabled")
-
-if CHROMADB_ENABLED:
-    logger.info("ChromaDB semantic search is enabled")
 
 app = Flask(__name__)
 
@@ -722,7 +717,6 @@ def home():
             "timestamp": datetime.now().isoformat(),
         }
     )
-    main()
 
 
 def main():
