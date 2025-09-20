@@ -318,7 +318,7 @@ curl "http://localhost:5000/tweets/semantic-search?query=oil prices"
 curl "http://localhost:5000/tweets/semantic-search?query=oil prices&limit=5"
 ```
 
-The semantic search endpoint returns tweets sorted by semantic similarity to your query, with the most similar tweets first. 
+The semantic search endpoint returns tweets sorted by semantic similarity to your query, with the most similar tweets first.
 
 Example response:
 ```json
@@ -483,3 +483,28 @@ A systemd service file is included for Linux systems. To install:
    sudo systemctl enable webhook_server
    sudo systemctl start webhook_server
    ```
+
+## Troubleshooting
+
+### Illegal instruction (core dumped) inside Docker on VPS
+
+On some VPS providers with older CPUs, you may see an "Illegal instruction (core dumped)" error when starting the app in Docker. This often occurs when native Python wheels (binary packages) were compiled with CPU instruction sets (e.g., AVX/AVX2) that your CPU does not support. A common culprit is `hnswlib`, which is pulled in by `chromadb`.
+
+This repository's Dockerfile mitigates the issue by forcing `hnswlib` to be built from source with portable flags:
+
+- It sets `PIP_NO_BINARY=hnswlib` to avoid downloading prebuilt wheels
+- It sets `HNSWLIB_NO_NATIVE=1` to prevent compiler flags like `-march=native`
+
+If you built the image before this change, rebuild without cache so it takes effect:
+
+```bash
+docker build --no-cache -t iftttwh .
+```
+
+You can also verify imports inside the container:
+
+```bash
+docker run --rm -it iftttwh python -c "import hnswlib, chromadb; print('OK')"
+```
+
+If the problem persists, please share the exact error output and the CPU model of your VPS for further guidance.

@@ -5,7 +5,7 @@ FROM python:3.9-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -17,8 +17,15 @@ COPY requirements/base.txt .
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r base.txt
+# Avoid prebuilt AVX/AVX2 wheels for hnswlib which can crash on older CPUs.
+# Force hnswlib to compile from source with portable flags (no -march=native).
+ENV PIP_NO_BINARY=hnswlib \
+    HNSWLIB_NO_NATIVE=1 \
+    HNSWLIB_USE_AVX=0
+
+# Pre-install hnswlib from source, then the rest of dependencies
+RUN pip install --no-cache-dir hnswlib && \
+    pip install --no-cache-dir -r base.txt
 
 # Runtime stage
 FROM python:3.9-slim AS runtime
