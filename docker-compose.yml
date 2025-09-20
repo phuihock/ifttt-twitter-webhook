@@ -8,7 +8,7 @@ services:
     volumes:
       - ./data/huggingface-cache:/data
     environment:
-      - MODEL_ID=Qwen/Qwen3-Embedding-0.6B
+      - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
     restart: unless-stopped
 
   ifttt-twitter-webhook:
@@ -17,21 +17,28 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5001:5000"
+      - "${PORT:-5000}:5000"
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./config:/app/config
+    env_file:
+      - .env
     environment:
       - FLASK_APP=src/main.py
-      - FLASK_ENV=production
-      - ANONYMIZED_TELEMETRY=False
-      - CHROMA_TELEMETRY=False
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - DEBUG=${DEBUG:-False}
+      - PORT=${PORT:-5000}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-False}
+      - CHROMA_TELEMETRY=${CHROMA_TELEMETRY:-False}
       - USER_ID=${USER_ID:-1000}
       - GROUP_ID=${GROUP_ID:-1000}
+      - HF_WAIT_FOR=${HF_WAIT_FOR:-1}
     restart: unless-stopped
     depends_on:
-      - huggingface-embeddings
+      huggingface-embeddings:
+        condition: service_started
     healthcheck:
       test: [ "CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')" ]
       interval: 30s
