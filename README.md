@@ -448,10 +448,7 @@ docker build -t ifttt-twitter-webhook .
 docker run -d -p 5000:5000 --name ifttt-twitter-webhook ifttt-twitter-webhook
 ```
 
-### Docker Compose
-
-You can also use Docker Compose to run the application:
-
+Or using docker-compose:
 ```bash
 # Start the application
 docker-compose up -d
@@ -462,6 +459,10 @@ docker-compose down
 # View logs
 docker-compose logs -f
 ```
+
+The Docker image is optimized for CPU-only operation and does not include any NVIDIA CUDA dependencies, making it suitable for lightweight VPS deployments.
+
+### Systemd Service
 
 ### Systemd Service
 
